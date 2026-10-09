@@ -1,14 +1,14 @@
-# Project Scope: Holy
+# Project Scope: Holy (Full AI Image Editor)
 
-> Status: DRAFT v2. Items marked **[TBD]** need your decision.
+> Status: DRAFT v3. (Pivoted to full AI Editor suite)
 
 ## 1. What this is
 
-Holy is a local-first app that edits and transforms images with AI. The core contract is:
+Holy is a powerful, local-first **AI Image Editor** (an "AI Photoshop"). The core contract is:
 
-**Input: one image (or more) + a text prompt  →  Output: one image.**
+**Input: one image (or more) + a text prompt + optional mask → Output: one edited image.**
 
-Everything runs on the user's own Mac. No cloud, no accounts, no uploads.
+Instead of just Virtual Try-On, it acts as a comprehensive local studio for Generative Fill, Object Removal, Background Replacement, and Image-to-Image styling. Everything runs locally on the user's own Mac. No cloud, no subscriptions, no privacy leaks.
 
 ## 2. Core behavior (the contract)
 

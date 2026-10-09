@@ -86,10 +86,28 @@ def generate(prompt: str, image_bytes: bytes, mask_bytes: bytes,
         pipe = load_model()
         device = pipe.device.type
 
-        init_image = Image.open(BytesIO(image_bytes)).convert("RGB")
-        mask_image = Image.open(BytesIO(mask_bytes)).convert("L")
+        # Load full resolution images
+        init_image_full_res = Image.open(BytesIO(image_bytes)).convert("RGB")
+        mask_image_full_res = Image.open(BytesIO(mask_bytes)).convert("L")
 
-        max_size = 1024
+        # First, ensure the full resolution is a multiple of 8 so we don't have alignment issues later
+        w, h = init_image_full_res.size
+        new_w, new_h = (w // 8) * 8, (h // 8) * 8
+        if new_w != w or new_h != h:
+            left = (w - new_w) // 2
+            top = (h - new_h) // 2
+            init_image_full_res = init_image_full_res.crop((left, top, left + new_w, top + new_h))
+            mask_image_full_res = mask_image_full_res.crop((left, top, left + new_w, top + new_h))
+            
+        original_size_cropped = init_image_full_res.size
+
+        # Create working copies for the AI
+        init_image = init_image_full_res.copy()
+        mask_image = mask_image_full_res.copy()
+
+        # MASSIVE FIX: Cap AI generation at 768px. 1024px in float32 consumes 8GB+ of RAM 
+        # and violently crashes 16GB Macs due to swap memory thrashing.
+        max_size = 768
         if init_image.width > max_size or init_image.height > max_size:
             init_image.thumbnail((max_size, max_size), Image.LANCZOS)
             mask_image = mask_image.resize(init_image.size, Image.NEAREST)
@@ -97,15 +115,15 @@ def generate(prompt: str, image_bytes: bytes, mask_bytes: bytes,
         w, h = init_image.size
         new_w, new_h = (w // 8) * 8, (h // 8) * 8
         if new_w != w or new_h != h:
-            # FIX: integer division — Image.crop() requires int coordinates,
-            # "/" returns a float and would raise TypeError on most Pillow versions
             left = (w - new_w) // 2
             top = (h - new_h) // 2
             init_image = init_image.crop((left, top, left + new_w, top + new_h))
             mask_image = mask_image.crop((left, top, left + new_w, top + new_h))
-        w, h = new_w, new_h
+            
+        w, h = init_image.size
         # re-binarize in case of any interpolation drift
         mask_image = mask_image.point(lambda p: 255 if p > 127 else 0)
+        mask_image_full_res = mask_image_full_res.point(lambda p: 255 if p > 127 else 0)
 
         generator = torch.Generator(device).manual_seed(seed)
 
@@ -133,6 +151,9 @@ def generate(prompt: str, image_bytes: bytes, mask_bytes: bytes,
             generator=generator,
             callback_on_step_end=step_callback,
         ).images[0]
+        
+        # DEBUG: Save the raw, un-composited, low-res output from the AI
+        result_img.save(str(OUTPUT_DIR / "debug_raw_output.png"))
 
         # FIX: when _interrupt stops the pipeline early, pipe() still returns
         # normally with a (partial/garbage) image — without this check the
@@ -140,10 +161,13 @@ def generate(prompt: str, image_bytes: bytes, mask_bytes: bytes,
         if _abort_flag:
             return {"status": "aborted"}
 
-    # Composite the generated image back onto the original image using the mask
-    # to perfectly preserve all pixels outside the painted area and remove hard seams
-    soft_mask = mask_image.filter(ImageFilter.GaussianBlur(4))
-    result_img = Image.composite(result_img, init_image, soft_mask)
+    # Scale the AI output back up to the original un-shrunk resolution
+    result_img = result_img.resize(original_size_cropped, Image.LANCZOS)
+
+    # Composite the generated image back onto the original full-res image using the full-res mask
+    # This guarantees zero quality loss for pixels outside the mask!
+    soft_mask = mask_image_full_res.filter(ImageFilter.GaussianBlur(4))
+    result_img = Image.composite(result_img, init_image_full_res, soft_mask)
 
     name = f"{int(time.time())}_{seed}_{uuid.uuid4().hex[:6]}.png"
     result_img.save(str(OUTPUT_DIR / name))

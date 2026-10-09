@@ -31,6 +31,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const baHandle = document.getElementById('ba-handle');
     const originalImagePreview = document.getElementById('original-image-preview');
 
+    const contextMenu = document.getElementById('library-context-menu');
+    const ctxSendCanvas = document.getElementById('ctx-send-canvas');
+    const ctxDownload = document.getElementById('ctx-download');
+    let contextTargetUrl = null;
+
     async function loadLibrary() {
         if (!libraryGrid) return;
         try {
@@ -39,13 +44,91 @@ document.addEventListener('DOMContentLoaded', () => {
             libraryGrid.innerHTML = '';
             data.images.forEach(imgFile => {
                 const img = document.createElement('img');
-                img.src = `${API_BASE}/outputs/${imgFile}`;
-                img.onclick = () => window.open(img.src, '_blank');
+                const imgUrl = `${API_BASE}/outputs/${imgFile}`;
+                img.src = imgUrl;
+                
+                // Left click -> View full screen
+                img.onclick = () => window.open(imgUrl, '_blank');
+                
+                // Right click -> Open Context Menu
+                img.oncontextmenu = (e) => {
+                    e.preventDefault();
+                    contextTargetUrl = imgUrl;
+                    contextMenu.style.display = 'flex';
+                    // Position menu at mouse coordinates (relative to page)
+                    contextMenu.style.left = `${e.pageX}px`;
+                    contextMenu.style.top = `${e.pageY}px`;
+                };
+                
                 libraryGrid.appendChild(img);
             });
         } catch (e) { console.error(e); }
     }
     loadLibrary();
+
+    // Hide context menu when clicking outside
+    document.addEventListener('click', (e) => {
+        if (contextMenu && e.target.closest('#library-context-menu') === null) {
+            contextMenu.style.display = 'none';
+        }
+    });
+
+    // Handle "Download" action
+    if (ctxDownload) {
+        ctxDownload.addEventListener('click', () => {
+            if (!contextTargetUrl) return;
+            const a = document.createElement('a');
+            a.href = contextTargetUrl;
+            a.download = contextTargetUrl.split('/').pop(); // Extracts filename
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            contextMenu.style.display = 'none';
+        });
+    }
+
+    // Handle "Send to Canvas" action
+    if (ctxSendCanvas) {
+        ctxSendCanvas.addEventListener('click', async () => {
+            if (!contextTargetUrl) return;
+            
+            try {
+                // Fetch the image as a blob so we can populate the actual HTML file input
+                const res = await fetch(contextTargetUrl);
+                const blob = await res.blob();
+                
+                // Construct a File object and forcefully inject it into the <input type="file">
+                // This prevents the HTML "Please select a file" validation error!
+                const file = new File([blob], contextTargetUrl.split('/').pop(), { type: blob.type });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                const imageUpload = document.getElementById('image-upload');
+                if (imageUpload) {
+                    imageUpload.files = dataTransfer.files;
+                }
+
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.onload = () => {
+                    currentRawImage = img;
+                    renderImageToCanvas();
+                    canvasPlaceholder.style.display = 'none';
+                    
+                    // Jump to Canvas view if we are on Result view
+                    resultContainer.style.display = 'none';
+                    canvasContainer.style.display = 'flex';
+                    
+                    // Scroll to top
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                };
+                img.src = URL.createObjectURL(blob);
+                contextMenu.style.display = 'none';
+            } catch (err) {
+                console.error("Error loading image from library:", err);
+                contextMenu.style.display = 'none';
+            }
+        });
+    }
 
     let isSliding = false;
     

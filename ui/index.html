@@ -100,12 +100,22 @@
                 <canvas id="mask-canvas"></canvas>
 
                 <div class="generation-overlay" id="generation-overlay" style="display: none;">
-                    <div class="scanning-bar"></div>
-                    <div class="generation-text" id="overlay-text">Synthesizing...</div>
-                    <div class="progress-bar-container" style="width: 60%; height: 4px; background: rgba(255,255,255,0.2); border-radius: 4px; margin-top: 1rem; overflow: hidden;">
-                        <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%; height: 100%; background: var(--white); box-shadow: 0 0 10px rgba(255,255,255,0.8); transition: width 0.3s ease;"></div>
+                    <div class="cyber-grid"></div>
+                    <div class="scanning-laser"></div>
+                    <div class="cyber-target">
+                        <svg width="80" height="80" viewBox="0 0 100 100">
+                            <path d="M10,30 L10,10 L30,10" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
+                            <path d="M70,10 L90,10 L90,30" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
+                            <path d="M90,70 L90,90 L70,90" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
+                            <path d="M30,90 L10,90 L10,70" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
+                            <circle cx="50" cy="50" r="3" fill="rgba(255,255,255,0.9)"/>
+                        </svg>
                     </div>
-                    <button type="button" class="secondary-btn" id="abort-btn" style="margin-top: 1.5rem; z-index: 52; border-color: #ef4444; color: #ef4444;">Cancel Generation</button>
+                    <div class="generation-text" id="overlay-text">> SYNTHESIZING_</div>
+                    <div class="progress-bar-container cyber-progress" style="width: 60%; height: 6px; background: rgba(0,0,0,0.8); border: 1px solid var(--border-light); margin-top: 1.5rem; overflow: hidden; z-index: 52;">
+                        <div class="progress-bar-fill cyber-fill" id="progress-bar-fill" style="width: 0%; height: 100%; background: repeating-linear-gradient(45deg, var(--white), var(--white) 10px, transparent 10px, transparent 20px); background-size: 28px 28px; box-shadow: 0 0 10px rgba(255,255,255,0.5); transition: width 0.3s ease;"></div>
+                    </div>
+                    <button type="button" class="secondary-btn cyber-btn" id="abort-btn" style="margin-top: 2rem; z-index: 52; border-color: #ef4444; color: #ef4444; font-family: monospace; letter-spacing: 0.1em; text-transform: uppercase;">[ ABORT_SEQUENCE ]</button>
                 </div>
             </div>
 
@@ -189,6 +199,17 @@
             </div>
         </section>
 
+        <!-- Custom Right-Click Context Menu -->
+        <div id="library-context-menu" class="context-menu" style="display: none;">
+            <div class="context-menu-item" id="ctx-send-canvas">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                Send to Canvas
+            </div>
+            <div class="context-menu-item" id="ctx-download">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Download
+            </div>
+        </div>
 
         <footer>
             <p>Holy. &mdash; AI Virtual Try-On</p>
