@@ -205,9 +205,84 @@ document.addEventListener('DOMContentLoaded', () => {
         brushSize = parseInt(e.target.value);
         brushSizeVal.textContent = brushSize;
     });
-    
+    // State Persistence
     let currentRawImage = null;
     const aspectRatioSelect = document.getElementById('aspect-ratio');
+    
+    function saveState() {
+        const state = {
+            prompt: document.getElementById('prompt').value,
+            negativePrompt: document.getElementById('negative-prompt').value,
+            aspectRatio: aspectRatioSelect ? aspectRatioSelect.value : 'original',
+            steps: stepsInput.value,
+            strength: strengthInput.value
+        };
+        sessionStorage.setItem('holy_state', JSON.stringify(state));
+        
+        if (currentRawImage) {
+            // Save base image and mask as data URLs
+            // We use a scaled down version for storage limits if needed, but modern browsers allow 5MB+
+            try {
+                sessionStorage.setItem('holy_img', currentRawImage.src);
+                sessionStorage.setItem('holy_mask', maskCanvas.toDataURL());
+            } catch (e) {
+                console.warn('Session storage quota exceeded for images.');
+            }
+        }
+    }
+
+    function loadState() {
+        const savedState = sessionStorage.getItem('holy_state');
+        if (savedState) {
+            try {
+                const state = JSON.parse(savedState);
+                if (state.prompt) document.getElementById('prompt').value = state.prompt;
+                if (state.negativePrompt) document.getElementById('negative-prompt').value = state.negativePrompt;
+                if (state.aspectRatio && aspectRatioSelect) aspectRatioSelect.value = state.aspectRatio;
+                if (state.steps) {
+                    stepsInput.value = state.steps;
+                    stepsVal.textContent = state.steps;
+                }
+                if (state.strength) {
+                    strengthInput.value = state.strength;
+                    strengthVal.textContent = parseFloat(state.strength).toFixed(2);
+                }
+            } catch(e) {}
+        }
+        
+        const savedImg = sessionStorage.getItem('holy_img');
+        if (savedImg) {
+            const img = new Image();
+            img.onload = () => {
+                currentRawImage = img;
+                renderImageToCanvas();
+                placeholder.style.display = 'none';
+                
+                // Attempt to restore mask
+                const savedMask = sessionStorage.getItem('holy_mask');
+                if (savedMask) {
+                    const maskImg = new Image();
+                    maskImg.onload = () => {
+                        maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+                        maskCtx.drawImage(maskImg, 0, 0);
+                    };
+                    maskImg.src = savedMask;
+                }
+            };
+            img.src = savedImg;
+        }
+    }
+
+    // Attach listeners to save state automatically
+    document.getElementById('prompt').addEventListener('input', saveState);
+    document.getElementById('negative-prompt').addEventListener('input', saveState);
+    if (aspectRatioSelect) aspectRatioSelect.addEventListener('change', () => { renderImageToCanvas(); saveState(); });
+    stepsInput.addEventListener('change', saveState);
+    strengthInput.addEventListener('change', saveState);
+
+    // Load state on startup
+    loadState();
+
     
     function renderImageToCanvas() {
         if (!currentRawImage) return;
@@ -273,11 +348,15 @@ document.addEventListener('DOMContentLoaded', () => {
         aspectRatioSelect.addEventListener('change', renderImageToCanvas);
     }
     
-    // Handle Image Upload
-    imageUpload.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    // Shared file handler
+    function handleImageFile(file) {
+        if (!file || !file.type.startsWith('image/')) return;
         
+        // Sync the file to the actual input element so the backend gets it
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        imageUpload.files = dataTransfer.files;
+
         const reader = new FileReader();
         reader.onload = (event) => {
             const img = new Image();
@@ -285,10 +364,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentRawImage = img;
                 renderImageToCanvas();
                 placeholder.style.display = 'none';
+                saveState();
             };
             img.src = event.target.result;
         };
         reader.readAsDataURL(file);
+    }
+
+    // Handle Image Upload via Button
+    imageUpload.addEventListener('change', (e) => {
+        handleImageFile(e.target.files[0]);
+    });
+    
+    // Click on placeholder to upload
+    placeholder.addEventListener('click', () => {
+        imageUpload.click();
+    });
+
+    // Drag and drop onto Canvas Area
+    canvasContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        canvasContainer.classList.add('drag-active');
+    });
+
+    canvasContainer.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        canvasContainer.classList.remove('drag-active');
+    });
+
+    canvasContainer.addEventListener('drop', (e) => {
+        e.preventDefault();
+        canvasContainer.classList.remove('drag-active');
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleImageFile(e.dataTransfer.files[0]);
+        }
     });
     
     // Helper to calculate mouse coordinates taking CSS scaling into account
@@ -309,8 +418,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     maskCanvas.addEventListener('mousemove', draw);
-    maskCanvas.addEventListener('mouseup', () => isDrawing = false);
-    maskCanvas.addEventListener('mouseout', () => isDrawing = false);
+    maskCanvas.addEventListener('mouseup', () => {
+        if (isDrawing) { isDrawing = false; saveState(); }
+    });
+    maskCanvas.addEventListener('mouseout', () => {
+        if (isDrawing) { isDrawing = false; saveState(); }
+    });
     
     // Draw semi-transparent brush stroke
     function draw(e) {
@@ -336,6 +449,24 @@ document.addEventListener('DOMContentLoaded', () => {
     clearMaskBtn.addEventListener('click', clearMask);
     function clearMask() {
         maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+        saveState();
+    }
+    
+    // Clear Workspace
+    const clearWorkspaceBtn = document.getElementById('clear-workspace-btn');
+    if (clearWorkspaceBtn) {
+        clearWorkspaceBtn.addEventListener('click', () => {
+            sessionStorage.removeItem('holy_img');
+            sessionStorage.removeItem('holy_mask');
+            sessionStorage.removeItem('holy_state');
+            currentRawImage = null;
+            baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+            placeholder.style.display = 'flex';
+            canvasContainer.style.height = 'auto'; // Reset height
+            document.getElementById('prompt').value = '';
+            document.getElementById('negative-prompt').value = 'deformed, blurry, bad anatomy, low quality';
+        });
     }
     
     // Utility: Convert painted mask into a pure B&W mask for backend
@@ -474,7 +605,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (genOverlay) genOverlay.style.display = 'none';
             clearInterval(progressInterval);
             generateBtn.disabled = false;
-            btnText.textContent = 'Generate Try-On';
+            btnText.textContent = 'Generate';
             loader.style.display = 'none';
         }
     });

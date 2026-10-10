@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Holy. | Virtual Try-On Studio</title>
+    <title>Holy. | AI Shop</title>
     <meta name="description"
-        content="AI-powered virtual try-on studio with inpainting — upload a photo, mask the outfit, describe the new look, and generate.">
+        content="AI Shop with inpainting — upload a photo, mask the outfit, describe the new look, and generate.">
     <meta name="theme-color" content="#0a0a0a">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -19,7 +19,7 @@
     <div class="app-container">
         <header>
             <h1>Holy<span class="accent-dot">.</span></h1>
-            <p>Virtual Try-On Studio <span class="divider-dot">&middot;</span> Inpainting</p>
+            <p>AI Shop <span class="divider-dot">&middot;</span> Inpainting</p>
         </header>
 
         <form id="generate-form" class="main-layout">
@@ -52,18 +52,14 @@
                                 Erase
                             </button>
                         </div>
-                        <button type="button" id="clear-mask-btn" class="secondary-btn"
-                            style="width: 100%; margin-top: 0.5rem;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="3 6 5 6 21 6"></polyline>
-                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                                <path d="M10 11v6"></path>
-                                <path d="M14 11v6"></path>
-                                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-                            </svg>
-                            Clear Mask
-                        </button>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                            <button type="button" id="clear-mask-btn" class="secondary-btn" style="flex: 1;">
+                                Clear Mask
+                            </button>
+                            <button type="button" id="clear-workspace-btn" class="secondary-btn" style="flex: 1; color: #ff6b6b; border-color: rgba(255, 107, 107, 0.3);">
+                                Clear All
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -77,7 +73,7 @@
 
 
                 <button type="submit" id="generate-btn" class="glow-btn">
-                    <span>Generate Try-On</span>
+                    <span>Generate</span>
                     <div class="loader-spinner" style="display: none;" aria-hidden="true"></div>
                 </button>
             </section>
@@ -100,22 +96,35 @@
                 <canvas id="mask-canvas"></canvas>
 
                 <div class="generation-overlay" id="generation-overlay" style="display: none;">
-                    <div class="cyber-grid"></div>
+                    <div class="holo-scanlines"></div>
+                    <div class="data-cascade"></div>
+                    <div class="hex-grid"></div>
                     <div class="scanning-laser"></div>
-                    <div class="cyber-target">
-                        <svg width="80" height="80" viewBox="0 0 100 100">
-                            <path d="M10,30 L10,10 L30,10" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
-                            <path d="M70,10 L90,10 L90,30" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
-                            <path d="M90,70 L90,90 L70,90" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
-                            <path d="M30,90 L10,90 L10,70" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
-                            <circle cx="50" cy="50" r="3" fill="rgba(255,255,255,0.9)"/>
-                        </svg>
+                    
+                    <div class="sys-readout">
+                        <div>SYS_MEM_ALLOC: 0x4F92 <span class="blink">|</span> USAGE: 104%</div>
+                        <div>NEURAL_COMPILER: ACTIVE</div>
+                        <div style="margin-top: 5px; color: #6ee7b7;">CONNECTING_TENSORS...</div>
                     </div>
-                    <div class="generation-text" id="overlay-text">> SYNTHESIZING_</div>
-                    <div class="progress-bar-container cyber-progress" style="width: 60%; height: 6px; background: rgba(0,0,0,0.8); border: 1px solid var(--border-light); margin-top: 1.5rem; overflow: hidden; z-index: 52;">
-                        <div class="progress-bar-fill cyber-fill" id="progress-bar-fill" style="width: 0%; height: 100%; background: repeating-linear-gradient(45deg, var(--white), var(--white) 10px, transparent 10px, transparent 20px); background-size: 28px 28px; box-shadow: 0 0 10px rgba(255,255,255,0.5); transition: width 0.3s ease;"></div>
+
+                    <div class="cyber-cube-container">
+                        <div class="cyber-cube">
+                            <div class="face front"></div>
+                            <div class="face back"></div>
+                            <div class="face right"></div>
+                            <div class="face left"></div>
+                            <div class="face top"></div>
+                            <div class="face bottom"></div>
+                        </div>
                     </div>
-                    <button type="button" class="secondary-btn cyber-btn" id="abort-btn" style="margin-top: 2rem; z-index: 52; border-color: #ef4444; color: #ef4444; font-family: monospace; letter-spacing: 0.1em; text-transform: uppercase;">[ ABORT_SEQUENCE ]</button>
+                    
+                    <div class="generation-text glitched-text" id="overlay-text">> SYNTHESIZING_</div>
+                    
+                    <div class="progress-bar-container cyber-progress">
+                        <div class="progress-bar-fill cyber-fill" id="progress-bar-fill" style="width: 0%; height: 100%; background: repeating-linear-gradient(45deg, var(--white), var(--white) 10px, transparent 10px, transparent 20px); background-size: 28px 28px; box-shadow: 0 0 12px rgba(255,255,255,0.6); transition: width 0.3s ease;"></div>
+                    </div>
+                    
+                    <button type="button" class="secondary-btn cyber-btn" id="abort-btn" style="margin-top: 2.5rem; z-index: 52; border-color: #ef4444; color: #ef4444; font-family: monospace; letter-spacing: 0.1em; background: rgba(239, 68, 68, 0.1);">[ ABORT_SEQUENCE ]</button>
                 </div>
             </div>
 
@@ -123,7 +132,7 @@
                 <h3>Result</h3>
 
                 <div class="before-after-container" id="before-after-container">
-                    <img id="result-image" src="" alt="Generated try-on result" class="ba-image">
+                    <img id="result-image" src="" alt="Generated AI Shop result" class="ba-image">
                     <div class="before-image-wrapper" id="before-wrapper">
                         <img id="original-image-preview" src="" alt="Original image" class="ba-image">
                     </div>
@@ -142,7 +151,7 @@
 
                 <button class="secondary-btn result-reset-btn" id="new-tryon-btn"
                     style="margin-top: 1rem; width: 100%;">
-                    New Try-On / Edit Mask
+                    New Generation / Edit Mask
                 </button>
             </div>
         </section>
@@ -212,7 +221,7 @@
         </div>
 
         <footer>
-            <p>Holy. &mdash; AI Virtual Try-On</p>
+            <p>Holy. &mdash; AI Shop</p>
         </footer>
     </div>
 
