@@ -77,8 +77,8 @@ class VAEUpcastWrapper:
         x = x.to(torch.float32)
         res = self.vae.encode(x, *args, **kwargs)
         # Cast the latent output back to Half
-        res.latent_dist.sample = lambda *a, **k: res.latent_dist.sample_raw(*a, **k).to(torch.float16)
         res.latent_dist.sample_raw = res.latent_dist.sample
+        res.latent_dist.sample = lambda *a, **k: res.latent_dist.sample_raw(*a, **k).to(torch.float16)
         res.latent_dist.mean = res.latent_dist.mean.to(torch.float16)
         res.latent_dist.std = res.latent_dist.std.to(torch.float16)
         return res
@@ -88,8 +88,11 @@ class VAEUpcastWrapper:
         z = z.to(torch.float32)
         res = self.vae.decode(z, *args, **kwargs)
         # Cast the image output back to Half
-        res.sample = res.sample.to(torch.float16)
-        return res
+        if isinstance(res, tuple):
+            return tuple(r.to(torch.float16) if hasattr(r, 'to') else r for r in res)
+        else:
+            res.sample = res.sample.to(torch.float16)
+            return res
 
 
 def load_model():
@@ -98,26 +101,39 @@ def load_model():
         print("Loading Realistic Vision V5.1 Inpainting Model...")
         model_id = "Uminosachi/realisticVisionV51_v51VAE-inpainting"
         device = _get_device()
+        
+        # CPU does not support HalfTensor operations well. Fallback to float32 if no GPU.
+        pipeline_dtype = torch.float16 if device in ["mps", "cuda"] else torch.float32
 
-        _model = AutoPipelineForInpainting.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16,
-            use_safetensors=True,
-            safety_checker=None,
-            requires_safety_checker=False,
-        )
+        if model_id.endswith(".safetensors"):
+            _model = AutoPipelineForInpainting.from_single_file(
+                model_id,
+                torch_dtype=pipeline_dtype,
+                use_safetensors=True,
+                safety_checker=None,
+                requires_safety_checker=False,
+            )
+        else:
+            _model = AutoPipelineForInpainting.from_pretrained(
+                model_id,
+                torch_dtype=pipeline_dtype,
+                use_safetensors=True,
+                safety_checker=None,
+                requires_safety_checker=False,
+            )
         _model = _model.to(device)
 
-        # Wrap the VAE in our translator to avoid MPS NaNs AND type mismatches
-        _model.vae = VAEUpcastWrapper(_model.vae)
+        # Wrap the VAE to avoid NaNs only if we are running the UNet in float16
+        if pipeline_dtype == torch.float16:
+            _model.vae = VAEUpcastWrapper(_model.vae)
 
-        # We no longer need to restrict memory or use max slicing because
         # float16 uses massively less RAM than float32.
-        _model.enable_attention_slicing()
+        # DO NOT enable attention slicing on MPS! It forces mathematical attention which accumulates in fp16 and causes NaNs.
+        # Letting it use PyTorch 2.0 SDPA automatically accumulates in fp32 and prevents the NaN!
         _model.vae.enable_tiling()
         _model.vae.enable_slicing()
 
-        print(f"Model loaded successfully on {device}! (fp16 with fp32 VAE Wrapper)")
+        print(f"Model loaded successfully on {device}! (dtype: {pipeline_dtype})")
     return _model
 
 
