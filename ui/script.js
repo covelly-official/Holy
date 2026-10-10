@@ -252,6 +252,16 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const savedImg = sessionStorage.getItem('holy_img');
         if (savedImg) {
+            try {
+                fetch(savedImg).then(res => res.blob()).then(blob => {
+                    const file = new File([blob], "restored_session.png", { type: "image/png" });
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+                    const imageUpload = document.getElementById('image-upload');
+                    if (imageUpload) imageUpload.files = dataTransfer.files;
+                });
+            } catch (e) { console.error(e); }
+
             const img = new Image();
             img.onload = () => {
                 currentRawImage = img;
@@ -610,8 +620,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    newTryonBtn.addEventListener('click', () => {
+    newTryonBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         resultContainer.style.display = 'none';
         canvasContainer.style.display = 'flex';
     });
+
+    const continueEditingBtn = document.getElementById('continue-editing-btn');
+    if (continueEditingBtn) {
+        continueEditingBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const resImgSrc = document.getElementById('result-image').src;
+            if (!resImgSrc) return;
+            try {
+                const res = await fetch(resImgSrc);
+                const blob = await res.blob();
+                
+                const file = new File([blob], "continued_edit.png", { type: blob.type || "image/png" });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                const uploadInput = document.getElementById('image-upload');
+                if (uploadInput) uploadInput.files = dataTransfer.files;
+
+                const img = new Image();
+                img.onload = () => {
+                    currentRawImage = img;
+                    renderImageToCanvas();
+                    const placeholder = document.getElementById('canvas-placeholder');
+                    if (placeholder) placeholder.style.display = 'none';
+                    clearMask();
+                    saveState();
+                    
+                    resultContainer.style.display = 'none';
+                    canvasContainer.style.display = 'flex';
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                };
+                img.src = URL.createObjectURL(blob);
+            } catch (err) {
+                console.error("Error continuing edit:", err);
+            }
+        });
+    }
 });
