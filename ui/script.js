@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const generateBtn = document.getElementById('generate-btn');
     const btnText = generateBtn.querySelector('span');
     const loader = generateBtn.querySelector('.loader-spinner');
-    
+
     // Canvas & File Upload Elements
     const imageUpload = document.getElementById('image-upload');
     const canvasContainer = document.getElementById('canvas-container');
@@ -18,13 +18,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const baseCtx = baseCanvas.getContext('2d');
     const maskCtx = maskCanvas.getContext('2d');
     const placeholder = document.getElementById('canvas-placeholder');
-    
+
     // Results & Library
     const resultContainer = document.getElementById('result-container');
     const resultImage = document.getElementById('result-image');
     const newTryonBtn = document.getElementById('new-tryon-btn');
     const libraryGrid = document.getElementById('library-grid');
-    
+
     // Before/After
     const baContainer = document.getElementById('before-after-container');
     const baWrapper = document.getElementById('before-wrapper');
@@ -46,10 +46,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const img = document.createElement('img');
                 const imgUrl = `${API_BASE}/outputs/${imgFile}`;
                 img.src = imgUrl;
-                
+
                 // Left click -> View full screen
                 img.onclick = () => window.open(imgUrl, '_blank');
-                
+
                 // Right click -> Open Context Menu
                 img.oncontextmenu = (e) => {
                     e.preventDefault();
@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     contextMenu.style.left = `${e.pageX}px`;
                     contextMenu.style.top = `${e.pageY}px`;
                 };
-                
+
                 libraryGrid.appendChild(img);
             });
         } catch (e) { console.error(e); }
@@ -91,12 +91,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ctxSendCanvas) {
         ctxSendCanvas.addEventListener('click', async () => {
             if (!contextTargetUrl) return;
-            
+
             try {
                 // Fetch the image as a blob so we can populate the actual HTML file input
                 const res = await fetch(contextTargetUrl);
                 const blob = await res.blob();
-                
+
                 // Construct a File object and forcefully inject it into the <input type="file">
                 // This prevents the HTML "Please select a file" validation error!
                 const file = new File([blob], contextTargetUrl.split('/').pop(), { type: blob.type });
@@ -113,11 +113,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     currentRawImage = img;
                     renderImageToCanvas();
                     canvasPlaceholder.style.display = 'none';
-                    
+
                     // Jump to Canvas view if we are on Result view
                     resultContainer.style.display = 'none';
                     canvasContainer.style.display = 'flex';
-                    
+
                     // Scroll to top
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 };
@@ -131,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let isSliding = false;
-    
+
     function onSlide(e) {
         if (!isSliding || !baContainer) return;
         let clientX = e.clientX;
@@ -164,19 +164,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateBeforeAfterWidths() {
         const container = document.getElementById('before-after-container');
-        if(container && originalImagePreview) {
+        if (container && originalImagePreview) {
             originalImagePreview.style.width = `${container.offsetWidth}px`;
         }
     }
     window.addEventListener('resize', updateBeforeAfterWidths);
-    
+
     // Brush Logic
     const brushSizeInput = document.getElementById('brush-size');
     const brushSizeVal = document.getElementById('brush-size-val');
     const clearMaskBtn = document.getElementById('clear-mask-btn');
     const drawModeBtn = document.getElementById('draw-mode-btn');
     const eraseModeBtn = document.getElementById('erase-mode-btn');
-    
+
     let isDrawing = false;
     let brushSize = 20;
     let isErasing = false;
@@ -197,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             drawModeBtn.style.color = 'var(--gray-300)';
         });
     }
-    
+
     // UI Label Updates
     stepsInput.addEventListener('input', e => stepsVal.textContent = e.target.value);
     strengthInput.addEventListener('input', e => strengthVal.textContent = parseFloat(e.target.value).toFixed(2));
@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // State Persistence
     let currentRawImage = null;
     const aspectRatioSelect = document.getElementById('aspect-ratio');
-    
+
     function saveState() {
         const state = {
             prompt: document.getElementById('prompt').value,
@@ -218,7 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
             strength: strengthInput.value
         };
         sessionStorage.setItem('holy_state', JSON.stringify(state));
-        
+
         if (currentRawImage) {
             // Save base image and mask as data URLs
             // We use a scaled down version for storage limits if needed, but modern browsers allow 5MB+
@@ -247,9 +247,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     strengthInput.value = state.strength;
                     strengthVal.textContent = parseFloat(state.strength).toFixed(2);
                 }
-            } catch(e) {}
+            } catch (e) { }
         }
-        
+
         const savedImg = sessionStorage.getItem('holy_img');
         if (savedImg) {
             try {
@@ -267,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentRawImage = img;
                 renderImageToCanvas();
                 placeholder.style.display = 'none';
-                
+
                 // Attempt to restore mask
                 const savedMask = sessionStorage.getItem('holy_mask');
                 if (savedMask) {
@@ -293,17 +293,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load state on startup
     loadState();
 
-    
+
     function renderImageToCanvas() {
         if (!currentRawImage) return;
         const img = currentRawImage;
         const ratioType = aspectRatioSelect ? aspectRatioSelect.value : 'original';
-        
+
         let targetW = img.width;
         let targetH = img.height;
-        
+
         const MAX_DIM = 1024;
-        
+
         if (ratioType === 'original') {
             // Constrain to MAX_DIM while keeping aspect ratio
             if (targetW > MAX_DIM || targetH > MAX_DIM) {
@@ -318,25 +318,25 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (ratioType === 'landscape') {
             targetW = 768; targetH = 512;
         }
-        
+
         // AI requires dimensions to be perfectly divisible by 8
         // By doing this on the frontend BEFORE drawing the image, it crops the 
         // 1-7 pixel overflow perfectly instead of the backend squishing/stretching it.
         targetW = Math.floor(targetW / 8) * 8;
         targetH = Math.floor(targetH / 8) * 8;
-        
+
         baseCanvas.width = targetW;
         baseCanvas.height = targetH;
         maskCanvas.width = targetW;
         maskCanvas.height = targetH;
-        
+
         const imgRatio = img.width / img.height;
         const targetRatio = targetW / targetH;
         let drawW = targetW;
         let drawH = targetH;
         let offsetX = 0;
         let offsetY = 0;
-        
+
         if (imgRatio > targetRatio) {
             drawW = targetH * imgRatio;
             offsetX = (targetW - drawW) / 2;
@@ -344,24 +344,24 @@ document.addEventListener('DOMContentLoaded', () => {
             drawH = targetW / imgRatio;
             offsetY = (targetH - drawH) / 2;
         }
-        
+
         baseCtx.clearRect(0, 0, targetW, targetH);
         baseCtx.drawImage(img, offsetX, offsetY, drawW, drawH);
         clearMask();
-        
+
         const cssRatio = targetH / targetW;
         const containerWidth = canvasContainer.clientWidth;
         canvasContainer.style.height = `${Math.min(containerWidth * cssRatio, window.innerHeight * 0.8)}px`;
     }
-    
+
     if (aspectRatioSelect) {
         aspectRatioSelect.addEventListener('change', renderImageToCanvas);
     }
-    
+
     // Shared file handler
     function handleImageFile(file) {
         if (!file || !file.type.startsWith('image/')) return;
-        
+
         // Sync the file to the actual input element so the backend gets it
         const dataTransfer = new DataTransfer();
         dataTransfer.items.add(file);
@@ -385,7 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
     imageUpload.addEventListener('change', (e) => {
         handleImageFile(e.target.files[0]);
     });
-    
+
     // Click on placeholder to upload
     placeholder.addEventListener('click', () => {
         imageUpload.click();
@@ -409,7 +409,7 @@ document.addEventListener('DOMContentLoaded', () => {
             handleImageFile(e.dataTransfer.files[0]);
         }
     });
-    
+
     // Helper to calculate mouse coordinates taking CSS scaling into account
     function getMousePos(canvas, evt) {
         const rect = canvas.getBoundingClientRect();
@@ -420,13 +420,13 @@ document.addEventListener('DOMContentLoaded', () => {
             y: (evt.clientY - rect.top) * scaleY
         };
     }
-    
+
     // Mouse Events for Mask Canvas
     maskCanvas.addEventListener('mousedown', (e) => {
         isDrawing = true;
         draw(e);
     });
-    
+
     maskCanvas.addEventListener('mousemove', draw);
     maskCanvas.addEventListener('mouseup', () => {
         if (isDrawing) { isDrawing = false; saveState(); }
@@ -434,16 +434,16 @@ document.addEventListener('DOMContentLoaded', () => {
     maskCanvas.addEventListener('mouseout', () => {
         if (isDrawing) { isDrawing = false; saveState(); }
     });
-    
+
     // Draw semi-transparent brush stroke
     function draw(e) {
         if (!isDrawing) return;
         const pos = getMousePos(maskCanvas, e);
-        
+
         // Draw smoothly
         maskCtx.beginPath();
         maskCtx.arc(pos.x, pos.y, brushSize, 0, Math.PI * 2);
-        
+
         if (isErasing) {
             maskCtx.globalCompositeOperation = 'destination-out';
             maskCtx.fillStyle = 'rgba(0,0,0,1)';
@@ -451,17 +451,17 @@ document.addEventListener('DOMContentLoaded', () => {
             maskCtx.globalCompositeOperation = 'source-over';
             maskCtx.fillStyle = 'rgba(217, 70, 239, 0.6)'; // Neon purple masking color
         }
-        
+
         maskCtx.fill();
         maskCtx.closePath();
     }
-    
+
     clearMaskBtn.addEventListener('click', clearMask);
     function clearMask() {
         maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
         saveState();
     }
-    
+
     // Clear Workspace
     const clearWorkspaceBtn = document.getElementById('clear-workspace-btn');
     if (clearWorkspaceBtn) {
@@ -478,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('negative-prompt').value = 'deformed, blurry, bad anatomy, low quality';
         });
     }
-    
+
     // Utility: Convert painted mask into a pure B&W mask for backend
     function getMaskBlob() {
         return new Promise(resolve => {
@@ -486,28 +486,28 @@ document.addEventListener('DOMContentLoaded', () => {
             tempCanvas.width = maskCanvas.width;
             tempCanvas.height = maskCanvas.height;
             const tempCtx = tempCanvas.getContext('2d');
-            
+
             // Solid black background
             tempCtx.fillStyle = 'black';
             tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-            
+
             const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
             const tempData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            
+
             // Everywhere the user painted (alpha > 0), make it solid white
             for (let i = 0; i < maskData.data.length; i += 4) {
-                if (maskData.data[i+3] > 0) {
+                if (maskData.data[i + 3] > 0) {
                     tempData.data[i] = 255;   // R
-                    tempData.data[i+1] = 255; // G
-                    tempData.data[i+2] = 255; // B
+                    tempData.data[i + 1] = 255; // G
+                    tempData.data[i + 2] = 255; // B
                 }
             }
             tempCtx.putImageData(tempData, 0, 0);
-            
+
             tempCanvas.toBlob(blob => resolve(blob), 'image/png');
         });
     }
-    
+
     function getBaseImageBlob() {
         return new Promise(resolve => {
             baseCanvas.toBlob(blob => resolve(blob), 'image/png');
@@ -519,14 +519,14 @@ document.addEventListener('DOMContentLoaded', () => {
         abortBtn.addEventListener('click', async () => {
             try {
                 await fetch(`${API_BASE}/abort`, { method: 'POST' });
-            } catch(e) {}
+            } catch (e) { }
         });
     }
 
     // Submit to FastAPI
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
+
         if (!imageUpload.files[0]) {
             alert("Please upload a photo of the person first.");
             return;
@@ -542,7 +542,7 @@ document.addEventListener('DOMContentLoaded', () => {
         generateBtn.disabled = true;
         btnText.textContent = 'Synthesizing...';
         loader.style.display = 'block';
-        
+
         const genOverlay = document.getElementById('generation-overlay');
         const overlayText = document.getElementById('overlay-text');
         const progressBarFill = document.getElementById('progress-bar-fill');
@@ -563,13 +563,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (progressBarFill) progressBarFill.style.width = `${percent}%`;
                     }
                 }
-            } catch(e) {}
+            } catch (e) { }
         }, 500);
 
         try {
             const imageBlob = await getBaseImageBlob();
             const maskBlob = await getMaskBlob();
-            
+
             const formData = new FormData();
             formData.append('prompt', prompt);
             if (negativePrompt.trim()) {
@@ -593,21 +593,21 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const data = await response.json();
-            
+
             if (data.status === "aborted") {
                 console.log("Generation aborted by user");
                 return;
             }
-            
+
             originalImagePreview.src = URL.createObjectURL(imageBlob);
             resultImage.src = `${API_BASE}${data.url}`;
-            
+
             canvasContainer.style.display = 'none';
             resultContainer.style.display = 'block';
-            
+
             setTimeout(updateBeforeAfterWidths, 50);
             loadLibrary();
-            
+
         } catch (error) {
             console.error('Generation failed:', error);
             alert('Failed to generate image. Ensure the backend (uvicorn) is running!');
@@ -619,7 +619,7 @@ document.addEventListener('DOMContentLoaded', () => {
             loader.style.display = 'none';
         }
     });
-    
+
     newTryonBtn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -637,7 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const res = await fetch(resImgSrc);
                 const blob = await res.blob();
-                
+
                 const file = new File([blob], "continued_edit.png", { type: blob.type || "image/png" });
                 const dataTransfer = new DataTransfer();
                 dataTransfer.items.add(file);
@@ -652,7 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (placeholder) placeholder.style.display = 'none';
                     clearMask();
                     saveState();
-                    
+
                     resultContainer.style.display = 'none';
                     canvasContainer.style.display = 'flex';
                     window.scrollTo({ top: 0, behavior: 'smooth' });

@@ -56,7 +56,8 @@
                             <button type="button" id="clear-mask-btn" class="secondary-btn" style="flex: 1;">
                                 Clear Mask
                             </button>
-                            <button type="button" id="clear-workspace-btn" class="secondary-btn" style="flex: 1; color: #ff6b6b; border-color: rgba(255, 107, 107, 0.3);">
+                            <button type="button" id="clear-workspace-btn" class="secondary-btn"
+                                style="flex: 1; color: #ff6b6b; border-color: rgba(255, 107, 107, 0.3);">
                                 Clear All
                             </button>
                         </div>
@@ -78,129 +79,136 @@
                 </button>
             </section>
 
-        <!-- ===================== OUTPUT ===================== -->
-        <section class="output-panel glass-panel" aria-label="Canvas and result">
-            <div class="canvas-container" id="canvas-container">
-                <div class="placeholder" id="canvas-placeholder">
-                    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="1.4">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                        <polyline points="21 15 16 10 5 21"></polyline>
-                    </svg>
-                    <p>Upload an image to start masking</p>
-                </div>
-
-                <!-- Canvases are stacked and positioned absolutely via CSS -->
-                <canvas id="base-canvas"></canvas>
-                <canvas id="mask-canvas"></canvas>
-
-                <div class="generation-overlay" id="generation-overlay" style="display: none;">
-                    <div class="holo-scanlines"></div>
-                    <div class="data-cascade"></div>
-                    <div class="hex-grid"></div>
-                    <div class="scanning-laser"></div>
-                    
-                    <div class="sys-readout">
-                        <div>SYS_MEM_ALLOC: 0x4F92 <span class="blink">|</span> USAGE: 104%</div>
-                        <div>NEURAL_COMPILER: ACTIVE</div>
-                        <div style="margin-top: 5px; color: #6ee7b7;">CONNECTING_TENSORS...</div>
+            <!-- ===================== OUTPUT ===================== -->
+            <section class="output-panel glass-panel" aria-label="Canvas and result">
+                <div class="canvas-container" id="canvas-container">
+                    <div class="placeholder" id="canvas-placeholder">
+                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="1.4">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                            <polyline points="21 15 16 10 5 21"></polyline>
+                        </svg>
+                        <p>Upload an image to start masking</p>
                     </div>
 
-                    <div class="cyber-cube-container">
-                        <div class="cyber-cube">
-                            <div class="face front"></div>
-                            <div class="face back"></div>
-                            <div class="face right"></div>
-                            <div class="face left"></div>
-                            <div class="face top"></div>
-                            <div class="face bottom"></div>
+                    <!-- Canvases are stacked and positioned absolutely via CSS -->
+                    <canvas id="base-canvas"></canvas>
+                    <canvas id="mask-canvas"></canvas>
+
+                    <div class="generation-overlay" id="generation-overlay" style="display: none;">
+                        <div class="holo-scanlines"></div>
+                        <div class="data-cascade"></div>
+                        <div class="hex-grid"></div>
+                        <div class="scanning-laser"></div>
+
+                        <div class="sys-readout">
+                            <div>SYS_MEM_ALLOC: 0x4F92 <span class="blink">|</span> USAGE: 104%</div>
+                            <div>NEURAL_COMPILER: ACTIVE</div>
+                            <div style="margin-top: 5px; color: #6ee7b7;">CONNECTING_TENSORS...</div>
+                        </div>
+
+                        <div class="cyber-cube-container">
+                            <div class="cyber-cube">
+                                <div class="face front"></div>
+                                <div class="face back"></div>
+                                <div class="face right"></div>
+                                <div class="face left"></div>
+                                <div class="face top"></div>
+                                <div class="face bottom"></div>
+                            </div>
+                        </div>
+
+                        <div class="generation-text glitched-text" id="overlay-text">> SYNTHESIZING_</div>
+
+                        <div class="progress-bar-container cyber-progress">
+                            <div class="progress-bar-fill cyber-fill" id="progress-bar-fill"
+                                style="width: 0%; height: 100%; background: repeating-linear-gradient(45deg, var(--white), var(--white) 10px, transparent 10px, transparent 20px); background-size: 28px 28px; box-shadow: 0 0 12px rgba(255,255,255,0.6); transition: width 0.3s ease;">
+                            </div>
+                        </div>
+
+                        <button type="button" class="secondary-btn cyber-btn" id="abort-btn"
+                            style="margin-top: 2.5rem; z-index: 52; border-color: #ef4444; color: #ef4444; font-family: monospace; letter-spacing: 0.1em; background: rgba(239, 68, 68, 0.1);">[
+                            ABORT_SEQUENCE ]</button>
+                    </div>
+                </div>
+
+                <div class="result-container" id="result-container" style="display: none;">
+                    <h3>Result</h3>
+
+                    <div class="before-after-container" id="before-after-container">
+                        <img id="result-image" src="" alt="Generated AI Shop result" class="ba-image">
+                        <div class="before-image-wrapper" id="before-wrapper">
+                            <img id="original-image-preview" src="" alt="Original image" class="ba-image">
+                        </div>
+                        <div class="ba-slider-handle" id="ba-handle">
+                            <div class="ba-slider-line"></div>
+                            <div class="ba-slider-button">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M15 18l-6-6 6-6" />
+                                </svg>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M9 18l6-6-6-6" />
+                                </svg>
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="generation-text glitched-text" id="overlay-text">> SYNTHESIZING_</div>
-                    
-                    <div class="progress-bar-container cyber-progress">
-                        <div class="progress-bar-fill cyber-fill" id="progress-bar-fill" style="width: 0%; height: 100%; background: repeating-linear-gradient(45deg, var(--white), var(--white) 10px, transparent 10px, transparent 20px); background-size: 28px 28px; box-shadow: 0 0 12px rgba(255,255,255,0.6); transition: width 0.3s ease;"></div>
-                    </div>
-                    
-                    <button type="button" class="secondary-btn cyber-btn" id="abort-btn" style="margin-top: 2.5rem; z-index: 52; border-color: #ef4444; color: #ef4444; font-family: monospace; letter-spacing: 0.1em; background: rgba(239, 68, 68, 0.1);">[ ABORT_SEQUENCE ]</button>
-                </div>
-            </div>
 
-            <div class="result-container" id="result-container" style="display: none;">
-                <h3>Result</h3>
-
-                <div class="before-after-container" id="before-after-container">
-                    <img id="result-image" src="" alt="Generated AI Shop result" class="ba-image">
-                    <div class="before-image-wrapper" id="before-wrapper">
-                        <img id="original-image-preview" src="" alt="Original image" class="ba-image">
-                    </div>
-                    <div class="ba-slider-handle" id="ba-handle">
-                        <div class="ba-slider-line"></div>
-                        <div class="ba-slider-button">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M15 18l-6-6 6-6" />
-                            </svg>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M9 18l6-6-6-6" />
-                            </svg>
-                        </div>
+                    <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem; width: 100%;">
+                        <button type="button" class="secondary-btn result-reset-btn" id="new-tryon-btn"
+                            style="flex: 1; padding: 0.875rem;">
+                            Back to Canvas
+                        </button>
+                        <button type="button" class="primary-btn" id="continue-editing-btn"
+                            style="flex: 1; padding: 0.875rem; background: var(--white); color: var(--black);">
+                            Continue Editing
+                        </button>
                     </div>
                 </div>
+            </section>
 
-                <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem; width: 100%;">
-                    <button type="button" class="secondary-btn result-reset-btn" id="new-tryon-btn" style="flex: 1; padding: 0.875rem;">
-                        Back to Canvas
-                    </button>
-                    <button type="button" class="primary-btn" id="continue-editing-btn" style="flex: 1; padding: 0.875rem; background: var(--white); color: var(--black);">
-                        Continue Editing
-                    </button>
+            <!-- ===================== ADVANCED SETTINGS (RIGHT) ===================== -->
+            <section class="advanced-panel glass-panel" aria-label="Advanced settings">
+                <div style="margin-bottom: 1.5rem;">
+                    <h3
+                        style="color: var(--gray-300); font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">
+                        Advanced Settings</h3>
                 </div>
-            </div>
-        </section>
 
-        <!-- ===================== ADVANCED SETTINGS (RIGHT) ===================== -->
-        <section class="advanced-panel glass-panel" aria-label="Advanced settings">
-            <div style="margin-bottom: 1.5rem;">
-                <h3 style="color: var(--gray-300); font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">
-                    Advanced Settings</h3>
-            </div>
+                <div class="input-group">
+                    <label for="negative-prompt">Negative Prompt <span class="optional-tag">optional</span></label>
+                    <textarea id="negative-prompt" rows="2"
+                        placeholder="deformed, blurry, bad anatomy, low quality">deformed, blurry, bad anatomy, low quality</textarea>
+                    <p class="helper-text">What to explicitly avoid generating.</p>
+                </div>
 
-            <div class="input-group">
-                <label for="negative-prompt">Negative Prompt <span class="optional-tag">optional</span></label>
-                <textarea id="negative-prompt" rows="2"
-                    placeholder="deformed, blurry, bad anatomy, low quality">deformed, blurry, bad anatomy, low quality</textarea>
-                <p class="helper-text">What to explicitly avoid generating.</p>
-            </div>
+                <div class="input-group">
+                    <label for="aspect-ratio">Aspect Ratio</label>
+                    <select id="aspect-ratio"
+                        style="width: 100%; padding: 0.7rem; background: var(--panel-light); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--white); font-family: inherit;">
+                        <option value="original" selected>Original Aspect Ratio</option>
+                        <option value="square">Square (1:1)</option>
+                        <option value="portrait">Portrait (2:3)</option>
+                        <option value="landscape">Landscape (3:2)</option>
+                    </select>
+                </div>
 
-            <div class="input-group">
-                <label for="aspect-ratio">Aspect Ratio</label>
-                <select id="aspect-ratio"
-                    style="width: 100%; padding: 0.7rem; background: var(--panel-light); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--white); font-family: inherit;">
-                    <option value="original" selected>Original Aspect Ratio</option>
-                    <option value="square">Square (1:1)</option>
-                    <option value="portrait">Portrait (2:3)</option>
-                    <option value="landscape">Landscape (3:2)</option>
-                </select>
-            </div>
+                <div class="input-group">
+                    <label for="steps">Steps <span id="steps-val">40</span></label>
+                    <input type="range" id="steps" min="10" max="60" step="1" value="40">
+                </div>
 
-            <div class="input-group">
-                <label for="steps">Steps <span id="steps-val">40</span></label>
-                <input type="range" id="steps" min="10" max="60" step="1" value="40">
-            </div>
+                <div class="input-group">
+                    <label for="strength">Strength <span id="strength-val">0.95</span></label>
+                    <input type="range" id="strength" min="0.1" max="1.0" step="0.05" value="0.95">
+                    <p class="helper-text">Higher = changes more of the original image.</p>
+                </div>
 
-            <div class="input-group">
-                <label for="strength">Strength <span id="strength-val">0.95</span></label>
-                <input type="range" id="strength" min="0.1" max="1.0" step="0.05" value="0.95">
-                <p class="helper-text">Higher = changes more of the original image.</p>
-            </div>
-
-            <div class="input-group">
-                <label for="seed">Seed <span class="optional-tag">optional</span></label>
-                <input type="number" id="seed" placeholder="Random">
-            </div>
-        </section>
+                <div class="input-group">
+                    <label for="seed">Seed <span class="optional-tag">optional</span></label>
+                    <input type="number" id="seed" placeholder="Random">
+                </div>
+            </section>
 
         </form>
 
@@ -215,11 +223,20 @@
         <!-- Custom Right-Click Context Menu -->
         <div id="library-context-menu" class="context-menu" style="display: none;">
             <div class="context-menu-item" id="ctx-send-canvas">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
                 Send to Canvas
             </div>
             <div class="context-menu-item" id="ctx-download">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
                 Download
             </div>
         </div>
