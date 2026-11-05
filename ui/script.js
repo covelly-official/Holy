@@ -213,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const state = {
             prompt: document.getElementById('prompt').value,
             negativePrompt: document.getElementById('negative-prompt').value,
+            modelId: document.getElementById('model-id') ? document.getElementById('model-id').value : 'Uminosachi/realisticVisionV51_v51VAE-inpainting',
             aspectRatio: aspectRatioSelect ? aspectRatioSelect.value : 'original',
             steps: stepsInput.value,
             strength: strengthInput.value
@@ -238,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const state = JSON.parse(savedState);
                 if (state.prompt) document.getElementById('prompt').value = state.prompt;
                 if (state.negativePrompt) document.getElementById('negative-prompt').value = state.negativePrompt;
+                if (state.modelId && document.getElementById('model-id')) document.getElementById('model-id').value = state.modelId;
                 if (state.aspectRatio && aspectRatioSelect) aspectRatioSelect.value = state.aspectRatio;
                 if (state.steps) {
                     stepsInput.value = state.steps;
@@ -286,6 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Attach listeners to save state automatically
     document.getElementById('prompt').addEventListener('input', saveState);
     document.getElementById('negative-prompt').addEventListener('input', saveState);
+    if (document.getElementById('model-id')) document.getElementById('model-id').addEventListener('change', saveState);
     if (aspectRatioSelect) aspectRatioSelect.addEventListener('change', () => { renderImageToCanvas(); saveState(); });
     stepsInput.addEventListener('change', saveState);
     strengthInput.addEventListener('change', saveState);
@@ -523,16 +526,65 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function isMaskEmpty() {
+        if (!maskCanvas.width || !maskCanvas.height) return true;
+        const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+        for (let i = 3; i < maskData.data.length; i += 4) {
+            if (maskData.data[i] > 0) return false;
+        }
+        return true;
+    }
+
+    function updateModelUI() {
+        const modelEl = document.getElementById('model-id');
+        if (!modelEl) return;
+        const isFlux = modelEl.value.toLowerCase().includes('flux');
+        const negPromptGroup = document.getElementById('negative-prompt')?.closest('.input-group');
+        if (negPromptGroup) {
+            negPromptGroup.style.opacity = isFlux ? '0.4' : '1.0';
+            const helper = negPromptGroup.querySelector('.helper-text');
+            if (helper) helper.textContent = isFlux ? 'FLUX.2 Klein is CFG-free (negative prompt ignored).' : 'What to explicitly avoid generating.';
+        }
+        if (isFlux) {
+            stepsVal.textContent = '4 (Distilled)';
+        } else {
+            stepsVal.textContent = stepsInput.value;
+        }
+    }
+
+    if (document.getElementById('model-id')) {
+        document.getElementById('model-id').addEventListener('change', () => {
+            updateModelUI();
+            saveState();
+        });
+        updateModelUI();
+    }
+
     // Submit to FastAPI
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        if (!imageUpload.files[0]) {
-            alert("Please upload a photo of the person first.");
+        const prompt = document.getElementById('prompt').value;
+        if (!prompt || !prompt.trim()) {
+            alert("Please enter a prompt describing the look or image to generate.");
             return;
         }
 
-        const prompt = document.getElementById('prompt').value;
+        const modelIdEl = document.getElementById('model-id');
+        const modelId = modelIdEl ? modelIdEl.value : "Uminosachi/realisticVisionV51_v51VAE-inpainting";
+        const isFlux = modelId.toLowerCase().includes('flux') || modelId.toLowerCase().includes('klein');
+        const hasImage = currentRawImage !== null || (imageUpload.files && imageUpload.files.length > 0);
+
+        if (!hasImage && !isFlux) {
+            alert("Realistic Vision requires an uploaded photo of the person for inpainting. Please upload a photo, or switch to FLUX.2 Klein for Text-to-Image!");
+            return;
+        }
+
+        if (hasImage && !isFlux && isMaskEmpty()) {
+            alert("Please paint over the clothes with the brush (purple mask) before clicking Generate!");
+            return;
+        }
+
         const negPromptEl = document.getElementById('negative-prompt');
         const negativePrompt = negPromptEl ? negPromptEl.value : "";
         const steps = document.getElementById('steps').value;
@@ -567,20 +619,26 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 500);
 
         try {
-            const imageBlob = await getBaseImageBlob();
-            const maskBlob = await getMaskBlob();
-
             const formData = new FormData();
-            formData.append('prompt', prompt);
-            if (negativePrompt.trim()) {
+            formData.append('prompt', prompt.trim());
+            if (negativePrompt.trim() && !isFlux) {
                 formData.append('negative_prompt', negativePrompt.trim());
             }
-            formData.append('image', imageBlob, 'original.png');
-            formData.append('mask', maskBlob, 'mask.png');
-            formData.append('steps', steps);
+            formData.append('model_id', modelId);
+            formData.append('steps', isFlux ? '4' : steps);
             formData.append('strength', strength);
             if (seedStr) {
                 formData.append('seed', seedStr);
+            }
+            const aspectVal = aspectRatioSelect ? aspectRatioSelect.value : 'original';
+            formData.append('aspect_ratio', aspectVal);
+
+            let imageBlob = null;
+            if (hasImage) {
+                imageBlob = await getBaseImageBlob();
+                const maskBlob = await getMaskBlob();
+                if (imageBlob) formData.append('image', imageBlob, 'original.png');
+                if (maskBlob) formData.append('mask', maskBlob, 'mask.png');
             }
 
             const response = await fetch(`${API_BASE}/generate`, {
@@ -589,7 +647,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (!response.ok) {
-                throw new Error(`API Error: ${response.statusText}`);
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || `API Error: ${response.statusText}`);
             }
 
             const data = await response.json();
@@ -599,7 +658,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            originalImagePreview.src = URL.createObjectURL(imageBlob);
+            if (data.is_txt2img || !imageBlob) {
+                if (baWrapper) baWrapper.style.display = 'none';
+                if (baHandle) baHandle.style.display = 'none';
+                resultImage.style.width = '100%';
+                resultImage.style.maxWidth = '600px';
+                resultImage.style.display = 'block';
+            } else {
+                if (baWrapper) baWrapper.style.display = 'block';
+                if (baHandle) baHandle.style.display = 'block';
+                originalImagePreview.src = URL.createObjectURL(imageBlob);
+                baWrapper.style.width = '50%';
+                baHandle.style.left = '50%';
+            }
             resultImage.src = `${API_BASE}${data.url}`;
 
             canvasContainer.style.display = 'none';
@@ -610,7 +681,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('Generation failed:', error);
-            alert('Failed to generate image. Ensure the backend (uvicorn) is running!');
+            alert(`Generation failed: ${error.message || error}`);
         } finally {
             if (genOverlay) genOverlay.style.display = 'none';
             clearInterval(progressInterval);

@@ -3,6 +3,8 @@ import threading
 import time
 import uuid
 import gc
+import queue
+import multiprocessing as mp
 from io import BytesIO
 from pathlib import Path
 
@@ -10,6 +12,19 @@ import numpy as np
 import torch
 from diffusers import AutoPipelineForInpainting
 from PIL import Image, ImageFilter
+
+try:
+    from mflux.models.flux2.variants import Flux2Klein
+    from mflux.models.common.resolution.config_resolution import ConfigResolution
+    MFLUX_AVAILABLE = True
+except ImportError:
+    MFLUX_AVAILABLE = False
+
+try:
+    import psutil
+    _PSUTIL_AVAILABLE = True
+except ImportError:
+    _PSUTIL_AVAILABLE = False
 
 OUTPUT_DIR = Path(__file__).parent / "outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -19,7 +34,36 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # on every single request, inside the model lock.
 _SAVE_DEBUG_OUTPUT = os.environ.get("SAVE_DEBUG_OUTPUT", "0") == "1"
 
+# ---------------------------------------------------------------------------
+# Tunables for the Flux/mflux safety net. All overridable with env vars so
+# you can tighten/loosen them without touching code. Defaults are chosen for
+# a 16GB Apple Silicon machine (M3 Air) that also has to keep Cursor, a
+# browser, etc. alive at the same time.
+#
+#   FLUX_MLX_MEMORY_LIMIT_GB  - soft cap we ask MLX's own allocator to
+#                               respect. First line of defense.
+#   FLUX_MAX_RSS_GB           - hard cap on the worker *process's* RSS. If
+#                               MLX ignores the soft cap above, this is the
+#                               backstop: we SIGKILL the worker the instant
+#                               it crosses this line.
+#   FLUX_MAX_SYSTEM_PERCENT   - hard cap on *system-wide* memory used%.
+#                               Catches cases where the worker's own RSS
+#                               looks fine but the whole Mac is still under
+#                               pressure (compressed memory, other apps).
+#   FLUX_MIN_AVAILABLE_GB     - hard floor on *system-wide* available memory.
+#   FLUX_MAX_SECONDS          - wall-clock backstop in case a run just hangs.
+#   FLUX_QUANTIZE_BITS        - "4", "8", or "0"/"none" to disable.
+# ---------------------------------------------------------------------------
+_FLUX_MLX_MEMORY_LIMIT_GB = float(os.environ.get("FLUX_MLX_MEMORY_LIMIT_GB", "8.0"))
+_FLUX_MAX_RSS_GB = float(os.environ.get("FLUX_MAX_RSS_GB", "9.5"))
+_FLUX_MAX_SYSTEM_PERCENT = float(os.environ.get("FLUX_MAX_SYSTEM_PERCENT", "88"))
+_FLUX_MIN_AVAILABLE_GB = float(os.environ.get("FLUX_MIN_AVAILABLE_GB", "1.5"))
+_FLUX_MAX_SECONDS = float(os.environ.get("FLUX_MAX_SECONDS", "1200"))
+_FLUX_QUANTIZE_BITS = os.environ.get("FLUX_QUANTIZE_BITS", "4")
+_FLUX_POLL_INTERVAL = 0.25
+
 _model = None
+_current_model_id = None
 _lock = threading.Lock()
 _last_used_time = time.time()
 _UNLOAD_TIMEOUT = 300  # 5 minutes
@@ -43,12 +87,71 @@ def _get_device():
     return "cpu"
 
 
+def _model_device_type(model) -> str:
+    # MLX models (Flux2Klein etc.) don't expose a torch-style `.device.type`.
+    # Fall back to "mps" (the only realistic device for mflux today) instead
+    # of letting this throw.
+    return getattr(getattr(model, "device", None), "type", "mps")
+
+
 def _empty_cache(device: str):
     gc.collect()
     if device == "mps":
         torch.mps.empty_cache()
     elif device == "cuda":
         torch.cuda.empty_cache()
+
+
+# ---------------------------------------------------------------------------
+# System/process memory readers. psutil is used when available; otherwise we
+# fall back to zero-dependency macOS tools (`vm_stat`, `ps`) so the safety
+# net still works even before you `pip install psutil`.
+# ---------------------------------------------------------------------------
+def _system_memory_percent():
+    if _PSUTIL_AVAILABLE:
+        try:
+            return psutil.virtual_memory().percent
+        except Exception:
+            pass
+    return None
+
+
+def _system_memory_available_gb():
+    if _PSUTIL_AVAILABLE:
+        try:
+            return psutil.virtual_memory().available / (1024 ** 3)
+        except Exception:
+            pass
+    try:
+        import subprocess
+        import re
+        out = subprocess.check_output(["vm_stat"], text=True, timeout=2)
+        page_size = 4096
+        m = re.search(r"page size of (\d+) bytes", out)
+        if m:
+            page_size = int(m.group(1))
+        free_pages = 0
+        for key in ("Pages free", "Pages inactive", "Pages speculative"):
+            m = re.search(rf"{re.escape(key)}:\s+(\d+)\.", out)
+            if m:
+                free_pages += int(m.group(1))
+        return (free_pages * page_size) / (1024 ** 3)
+    except Exception:
+        return None
+
+
+def _process_rss_gb(pid):
+    if _PSUTIL_AVAILABLE:
+        try:
+            return psutil.Process(pid).memory_info().rss / (1024 ** 3)
+        except Exception:
+            return None
+    try:
+        import subprocess
+        out = subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)], text=True, timeout=2)
+        return int(out.strip()) / (1024 ** 2)  # `ps` reports RSS in KB
+    except Exception:
+        return None
 
 
 def _unload_timer_thread():
@@ -58,10 +161,11 @@ def _unload_timer_thread():
         with _lock:
             if _model is not None and (time.time() - _last_used_time > _UNLOAD_TIMEOUT):
                 print("Model has been idle for 5 minutes. Unloading to free memory...")
-                device = _model.device.type
+                device = _model_device_type(_model)
                 _model = None
                 _empty_cache(device)
                 print("Memory freed successfully.")
+        _flux_worker.maybe_idle_shutdown()
 
 
 def _ensure_watcher_started():
@@ -141,11 +245,36 @@ class VAEUpcastWrapper:
             return res
 
 
-def load_model():
-    global _model
+def load_model(model_id: str):
+    """
+    PyTorch/diffusers model loader. Unchanged from before, with one addition:
+    if the Flux worker process is sitting warm in memory, we shut it down
+    first. On a 16GB machine you can't comfortably keep both backends loaded
+    at once, and there's no point letting an idle Flux worker hold several
+    GB hostage while you're about to load a diffusion checkpoint.
+    """
+    global _model, _current_model_id
+
+    if "flux" in model_id.lower() or "mflux" in model_id.lower():
+        raise RuntimeError(
+            "Flux/mflux models are no longer loaded through load_model() -- "
+            "they run in an isolated worker process. Call generate() as usual; "
+            "it routes Flux model_ids to the worker automatically."
+        )
+
+    if _flux_worker.is_alive():
+        _flux_worker.shutdown(hard=False)
+
+    if _model is not None and _current_model_id != model_id:
+        print(f"Switching models from {_current_model_id} to {model_id}. Unloading old model...")
+        device = _model_device_type(_model)
+        _model = None
+        _empty_cache(device)
+
     if _model is None:
-        print("Loading Realistic Vision V5.1 Inpainting Model...")
-        model_id = "Uminosachi/realisticVisionV51_v51VAE-inpainting"
+        _current_model_id = model_id
+
+        print(f"Loading PyTorch Model: {model_id}...")
         device = _get_device()
 
         # CPU does not support HalfTensor operations well. Fallback to float32 if no GPU.
@@ -161,13 +290,6 @@ def load_model():
                 requires_safety_checker=False,
             )
         else:
-            # Loading an fp16 variant (when the repo publishes one) means the fp16
-            # weights are downloaded and materialized directly -- no intermediate
-            # fp32 copy in RAM that then gets cast down. That fp32->fp16 cast on
-            # load is the single biggest RAM spike in this whole file, and the
-            # most likely reason the very first run took the machine down.
-            # low_cpu_mem_usage streams weights in rather than fully materializing
-            # before moving to device. Falls back cleanly if no fp16 variant exists.
             try:
                 _model = AutoPipelineForInpainting.from_pretrained(
                     model_id,
@@ -194,9 +316,6 @@ def load_model():
         if pipeline_dtype == torch.float16:
             _model.vae = VAEUpcastWrapper(_model.vae)
 
-        # float16 uses massively less RAM than float32.
-        # DO NOT enable attention slicing on MPS! It forces mathematical attention which accumulates in fp16 and causes NaNs.
-        # Letting it use PyTorch 2.0 SDPA automatically accumulates in fp32 and prevents the NaN!
         _model.vae.enable_tiling()
         _model.vae.enable_slicing()
 
@@ -206,59 +325,447 @@ def load_model():
     return _model
 
 
-def generate(prompt: str, image_bytes: bytes, mask_bytes: bytes,
-             negative_prompt: str = "deformed, blurry, bad anatomy, low quality",
-             strength: float = 0.8, steps: int = 30, seed: int | None = None) -> dict:
+# ---------------------------------------------------------------------------
+# Flux / mflux: isolated worker process.
+#
+# Why a whole process instead of just running mflux in-thread like before:
+# a single `pipe.generate_image(...)` call is one big blocking native call.
+# Nothing inside this process -- no watchdog thread, no timeout, no flag --
+# can interrupt it mid-flight or force it to give memory back. The old code's
+# only "safety net" was whatever happened *after* that call returned, by
+# which point the damage (swapping the whole Mac, freezing Cursor) was
+# already done.
+#
+# Running it in a separate process fixes that: a watchdog in the main
+# process can watch the worker's real memory use from the outside and
+# SIGKILL it the instant it crosses a threshold. A killed process returns
+# all of its memory to macOS immediately -- that's the only mechanism that
+# can genuinely "terminate the model at any point."  The cost is that if we
+# ever do have to kill it, the next Flux request pays a model-reload. That's
+# the correct trade on a 16GB machine: a slower next request beats a frozen
+# Mac.
+# ---------------------------------------------------------------------------
 
+def _set_mlx_memory_limit(limit_gb: float):
+    # The exact API for capping MLX's memory has moved between mlx releases
+    # (mx.metal.set_memory_limit -> mx.set_wired_limit / mx.set_cache_limit).
+    # Try every spelling we know of; silently skip whichever don't exist on
+    # the installed version rather than hard-failing.
+    try:
+        import mlx.core as mx
+    except ImportError:
+        return
+    limit_bytes = int(limit_gb * 1024 ** 3)
+    candidates = (
+        ("set_wired_limit",),
+        ("set_cache_limit",),
+        ("metal", "set_memory_limit"),
+        ("metal", "set_cache_limit"),
+    )
+    for path in candidates:
+        obj = mx
+        try:
+            for attr in path:
+                obj = getattr(obj, attr)
+        except AttributeError:
+            continue
+        try:
+            obj(limit_bytes, relaxed=True)
+        except TypeError:
+            try:
+                obj(limit_bytes)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
+def _clear_mlx_cache():
+    try:
+        import mlx.core as mx
+    except ImportError:
+        return
+    for path in (("clear_cache",), ("metal", "clear_cache")):
+        obj = mx
+        try:
+            for attr in path:
+                obj = getattr(obj, attr)
+            obj()
+            return
+        except AttributeError:
+            continue
+        except Exception:
+            return
+
+
+def _flux_worker_main(cmd_q, result_q):
+    """
+    Entry point run inside the isolated worker process. Keeps its own mflux
+    model loaded for as long as the process lives (so repeat requests stay
+    fast); the parent kills/respawns this process to reclaim memory or to
+    pick up a different model.
+    """
+    _set_mlx_memory_limit(_FLUX_MLX_MEMORY_LIMIT_GB)
+
+    worker_model = {"pipe": None, "model_id": None}
+
+    def _load(model_id):
+        if worker_model["pipe"] is not None and worker_model["model_id"] == model_id:
+            return worker_model["pipe"]
+
+        if not MFLUX_AVAILABLE:
+            raise RuntimeError("mflux is not installed. Run `pip install mflux` to use this model.")
+
+        print(f"[flux-worker] Loading MLX Model: {model_id}...")
+
+        mflux_path = None
+        if "flux2-klein-4b" in model_id.lower():
+            mflux_path = str(Path(__file__).parent.parent / "models" / "flux2-klein-4b-mlx")
+
+        if mflux_path and not Path(mflux_path).exists():
+            raise RuntimeError(
+                f"Expected model files at {mflux_path} but nothing is there. "
+                f"Did the `hf download` finish into this exact folder?"
+            )
+
+        model_config = ConfigResolution.resolve_restricted(
+            "flux2-klein-4b",
+            "flux2-klein-4b",
+            model_path=mflux_path,
+            extra_keys=(),
+            base_model=None,
+        )
+
+        bits = _FLUX_QUANTIZE_BITS.strip().lower()
+        quantize_val = None if bits in ("0", "none", "") else int(bits)
+
+        pipe = Flux2Klein(
+            model_config=model_config,
+            quantize=quantize_val,
+            model_path=mflux_path,
+        )
+        worker_model["pipe"] = pipe
+        worker_model["model_id"] = model_id
+        print(f"[flux-worker] MLX Model {model_id} loaded successfully! (quantize={quantize_val})")
+        return pipe
+
+    while True:
+        msg = cmd_q.get()  # blocks until the parent sends something
+
+        if msg["op"] == "shutdown":
+            return
+
+        if msg["op"] != "generate":
+            continue
+
+        try:
+            pipe = _load(msg["model_id"])
+
+            result_img_mflux = pipe.generate_image(
+                seed=msg["seed"],
+                prompt=msg["prompt"],
+                width=msg["width"],
+                height=msg["height"],
+                guidance=1.0,
+                image_path=msg["image_path"],
+                num_inference_steps=msg["steps"],
+                image_strength=msg["strength"],
+                scheduler="linear",
+                pid_decode=False,
+                pid_degrade_sigma=0.0,
+            )
+
+            if hasattr(result_img_mflux, "image"):
+                img = result_img_mflux.image.convert("RGB")
+            elif hasattr(result_img_mflux, "sq_image"):
+                img = result_img_mflux.sq_image.convert("RGB")
+            elif hasattr(result_img_mflux, "pil_image"):
+                img = result_img_mflux.pil_image.convert("RGB")
+            else:
+                import tempfile
+                out_fd, out_path = tempfile.mkstemp(suffix=".png")
+                os.close(out_fd)
+                try:
+                    result_img_mflux.save(path=out_path, export_json_metadata=False)
+                    real_path = out_path
+                    if os.path.exists(out_path + ".png") and os.path.getsize(out_path) == 0:
+                        real_path = out_path + ".png"
+                    img = Image.open(real_path).convert("RGB")
+                finally:
+                    for p in (out_path, out_path + ".png"):
+                        if os.path.exists(p):
+                            os.unlink(p)
+
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            result_q.put({"ok": True, "png_bytes": buf.getvalue()})
+
+        except Exception as e:
+            result_q.put({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+        finally:
+            _clear_mlx_cache()
+            gc.collect()
+
+
+class _FluxWorkerManager:
+    """
+    Owns the isolated Flux/mflux worker process from the parent side: starts
+    it lazily, keeps it warm between requests, watches its memory while a
+    job is running, and hard-kills it the moment that memory looks
+    dangerous (see the module docstring above for why it has to be a kill,
+    not a softer signal).
+    """
+
+    def __init__(self):
+        self._ctx = mp.get_context("spawn")  # fork + Metal/GPU contexts is unsafe
+        self.process = None
+        self.cmd_q = None
+        self.result_q = None
+        self.last_used = time.time()
+        self.lock = threading.Lock()
+
+    def is_alive(self) -> bool:
+        return self.process is not None and self.process.is_alive()
+
+    def ensure_started(self):
+        if self.is_alive():
+            return
+        _unload_diffusers_model()  # no-op if nothing is loaded
+        self.cmd_q = self._ctx.Queue()
+        self.result_q = self._ctx.Queue()
+        self.process = self._ctx.Process(
+            target=_flux_worker_main, args=(self.cmd_q, self.result_q), daemon=True
+        )
+        self.process.start()
+        _ensure_watcher_started()
+
+    def shutdown(self, hard: bool):
+        if not self.is_alive():
+            self.process = None
+            return
+        if hard:
+            self.process.kill()
+        else:
+            try:
+                self.cmd_q.put({"op": "shutdown"})
+            except Exception:
+                pass
+            self.process.join(timeout=5)
+            if self.process.is_alive():
+                self.process.kill()
+        self.process.join(timeout=5)
+        self.process = None
+        print("[flux-worker] process stopped, memory released.")
+
+    def maybe_idle_shutdown(self):
+        # Called every 30s from the shared watcher thread. Skips the check
+        # (rather than blocking) if a generation is actively in flight.
+        if not self.is_alive():
+            return
+        if (time.time() - self.last_used) <= _UNLOAD_TIMEOUT:
+            return
+        if not self.lock.acquire(blocking=False):
+            return
+        try:
+            if self.is_alive() and (time.time() - self.last_used) > _UNLOAD_TIMEOUT:
+                print("[flux-worker] idle for 5 minutes, shutting down to free memory...")
+                self.shutdown(hard=False)
+        finally:
+            self.lock.release()
+
+    def generate(self, **params) -> dict:
+        global _abort_flag
+        with self.lock:
+            self.last_used = time.time()
+            self.ensure_started()
+            self.cmd_q.put({"op": "generate", **params})
+
+            start = time.time()
+            while True:
+                try:
+                    result = self.result_q.get(timeout=_FLUX_POLL_INTERVAL)
+                    self.last_used = time.time()
+                    return result
+                except queue.Empty:
+                    pass
+
+                if not self.process.is_alive():
+                    exitcode = self.process.exitcode
+                    self.process = None
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"Flux worker process exited unexpectedly (exit code {exitcode}). "
+                            "This usually means macOS itself killed it for using too much memory."
+                        ),
+                    }
+
+                if _abort_flag:
+                    self.shutdown(hard=True)
+                    return {"ok": False, "aborted": True}
+
+                rss_gb = _process_rss_gb(self.process.pid)
+                sys_percent = _system_memory_percent()
+                sys_avail_gb = _system_memory_available_gb()
+                elapsed = time.time() - start
+
+                over_rss = rss_gb is not None and rss_gb > _FLUX_MAX_RSS_GB
+                over_percent = sys_percent is not None and sys_percent > _FLUX_MAX_SYSTEM_PERCENT
+                under_avail = sys_avail_gb is not None and sys_avail_gb < _FLUX_MIN_AVAILABLE_GB
+                timed_out = elapsed > _FLUX_MAX_SECONDS
+
+                if over_rss or over_percent or under_avail or timed_out:
+                    if over_rss:
+                        reason = f"worker RSS {rss_gb:.1f}GB exceeded the {_FLUX_MAX_RSS_GB:.1f}GB cap"
+                    elif over_percent:
+                        reason = f"system memory at {sys_percent:.0f}%, over the {_FLUX_MAX_SYSTEM_PERCENT:.0f}% cap"
+                    elif under_avail:
+                        reason = f"only {sys_avail_gb:.1f}GB available, under the {_FLUX_MIN_AVAILABLE_GB:.1f}GB floor"
+                    else:
+                        reason = f"generation ran past the {_FLUX_MAX_SECONDS:.0f}s safety timeout"
+                    print(f"[flux-worker] SAFETY KILL: {reason}. Terminating worker to protect the Mac.")
+                    self.shutdown(hard=True)
+                    return {
+                        "ok": False,
+                        "error": f"Stopped to protect your Mac's memory ({reason}). Try again; "
+                                 f"consider lowering steps or image size.",
+                    }
+
+
+def _unload_diffusers_model():
+    global _model
+    with _lock:
+        if _model is not None:
+            print("[flux-worker] unloading PyTorch model to free RAM for Flux on this machine...")
+            device = _model_device_type(_model)
+            _model = None
+            _empty_cache(device)
+
+
+_flux_worker = _FluxWorkerManager()
+
+
+def _preprocess(image_bytes: bytes, mask_bytes: bytes):
+    """Shared by both backends: load, pad-crop to a multiple of 8, downscale
+    to max_size, pad-crop again, and binarize the mask. Identical to what the
+    original single generate() function did inline."""
+    init_image_full_res = Image.open(BytesIO(image_bytes)).convert("RGB")
+    mask_image_full_res = Image.open(BytesIO(mask_bytes)).convert("L")
+
+    w, h = init_image_full_res.size
+    new_w, new_h = (w // 8) * 8, (h // 8) * 8
+    if new_w != w or new_h != h:
+        left = (w - new_w) // 2
+        top = (h - new_h) // 2
+        init_image_full_res = init_image_full_res.crop((left, top, left + new_w, top + new_h))
+        mask_image_full_res = mask_image_full_res.crop((left, top, left + new_w, top + new_h))
+
+    original_size_cropped = init_image_full_res.size
+
+    init_image = init_image_full_res.copy()
+    mask_image = mask_image_full_res.copy()
+
+    # Start conservative. Once this is stable, raise toward 768.
+    max_size = 512
+    if init_image.width > max_size or init_image.height > max_size:
+        init_image.thumbnail((max_size, max_size), Image.LANCZOS)
+        mask_image = mask_image.resize(init_image.size, Image.NEAREST)
+
+    w, h = init_image.size
+    new_w, new_h = (w // 8) * 8, (h // 8) * 8
+    if new_w != w or new_h != h:
+        left = (w - new_w) // 2
+        top = (h - new_h) // 2
+        init_image = init_image.crop((left, top, left + new_w, top + new_h))
+        mask_image = mask_image.crop((left, top, left + new_w, top + new_h))
+
+    mask_image = mask_image.point(lambda p: 255 if p > 127 else 0)
+    mask_image_full_res = mask_image_full_res.point(lambda p: 255 if p > 127 else 0)
+
+    return init_image_full_res, mask_image_full_res, init_image, mask_image, original_size_cropped
+
+
+def _finish(result_img, init_image_full_res, mask_image_full_res, original_size_cropped, seed, prompt):
+    result_img = result_img.resize(original_size_cropped, Image.LANCZOS)
+
+    soft_mask = mask_image_full_res.filter(ImageFilter.GaussianBlur(4))
+    result_img = Image.composite(result_img, init_image_full_res, soft_mask)
+
+    name = f"{int(time.time())}_{seed}_{uuid.uuid4().hex[:6]}.png"
+    result_img.save(str(OUTPUT_DIR / name))
+
+    del result_img
+
+    return {"file": name, "seed": seed, "prompt": prompt}
+
+
+def _generate_flux(prompt, image_bytes, mask_bytes, model_id, strength, steps, seed):
     global _last_used_time, _current_progress, _abort_flag
-    _abort_flag = False
-    if seed is None:
-        seed = int(time.time()) % (2**31)
+
+    _last_used_time = time.time()
+
+    init_image_full_res, mask_image_full_res, init_image, mask_image, original_size_cropped = \
+        _preprocess(image_bytes, mask_bytes)
+    w, h = init_image.size
+
+    actual_steps = int(steps * strength)
+    _current_progress["step"] = 0
+    _current_progress["total_steps"] = actual_steps
+
+    import tempfile
+    temp_fd, temp_path = tempfile.mkstemp(suffix=".png")
+    os.close(temp_fd)
+    init_image.save(temp_path)
+
+    try:
+        result = _flux_worker.generate(
+            model_id=model_id,
+            prompt=prompt,
+            seed=seed,
+            width=w,
+            height=h,
+            image_path=temp_path,
+            steps=steps,
+            strength=strength,
+        )
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+    if result.get("aborted"):
+        return {"status": "aborted"}
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error", "Flux generation failed."))
+
+    result_img = Image.open(BytesIO(result["png_bytes"])).convert("RGB")
+
+    if _SAVE_DEBUG_OUTPUT:
+        result_img.save(str(OUTPUT_DIR / "debug_raw_output.png"))
+
+    if _abort_flag:
+        return {"status": "aborted"}
+
+    return _finish(result_img, init_image_full_res, mask_image_full_res, original_size_cropped, seed, prompt)
+
+
+def _generate_diffusers(prompt, image_bytes, mask_bytes, model_id, negative_prompt, strength, steps, seed):
+    global _last_used_time, _current_progress, _abort_flag
 
     with _lock:
         _last_used_time = time.time()
-        pipe = load_model()
-        device = pipe.device.type
+        pipe = load_model(model_id)
+        device = _model_device_type(pipe)
 
-        init_image_full_res = Image.open(BytesIO(image_bytes)).convert("RGB")
-        mask_image_full_res = Image.open(BytesIO(mask_bytes)).convert("L")
-
-        w, h = init_image_full_res.size
-        new_w, new_h = (w // 8) * 8, (h // 8) * 8
-        if new_w != w or new_h != h:
-            left = (w - new_w) // 2
-            top = (h - new_h) // 2
-            init_image_full_res = init_image_full_res.crop((left, top, left + new_w, top + new_h))
-            mask_image_full_res = mask_image_full_res.crop((left, top, left + new_w, top + new_h))
-
-        original_size_cropped = init_image_full_res.size
-
-        init_image = init_image_full_res.copy()
-        mask_image = mask_image_full_res.copy()
-
-        # Start conservative. Once this is stable, raise toward 768.
-        max_size = 512
-        if init_image.width > max_size or init_image.height > max_size:
-            init_image.thumbnail((max_size, max_size), Image.LANCZOS)
-            mask_image = mask_image.resize(init_image.size, Image.NEAREST)
-
+        init_image_full_res, mask_image_full_res, init_image, mask_image, original_size_cropped = \
+            _preprocess(image_bytes, mask_bytes)
         w, h = init_image.size
-        new_w, new_h = (w // 8) * 8, (h // 8) * 8
-        if new_w != w or new_h != h:
-            left = (w - new_w) // 2
-            top = (h - new_h) // 2
-            init_image = init_image.crop((left, top, left + new_w, top + new_h))
-            mask_image = mask_image.crop((left, top, left + new_w, top + new_h))
-
-        w, h = init_image.size
-        mask_image = mask_image.point(lambda p: 255 if p > 127 else 0)
-        mask_image_full_res = mask_image_full_res.point(lambda p: 255 if p > 127 else 0)
-
-        generator = torch.Generator("cpu").manual_seed(seed)
 
         actual_steps = int(steps * strength)
         _current_progress["step"] = 0
         _current_progress["total_steps"] = actual_steps
+
+        generator = torch.Generator("cpu").manual_seed(seed)
 
         def step_callback(pipe, i, t, callback_kwargs):
             global _abort_flag
@@ -297,14 +804,21 @@ def generate(prompt: str, image_bytes: bytes, mask_bytes: bytes,
         if _abort_flag:
             return {"status": "aborted"}
 
-    result_img = result_img.resize(original_size_cropped, Image.LANCZOS)
+    return _finish(result_img, init_image_full_res, mask_image_full_res, original_size_cropped, seed, prompt)
 
-    soft_mask = mask_image_full_res.filter(ImageFilter.GaussianBlur(4))
-    result_img = Image.composite(result_img, init_image_full_res, soft_mask)
 
-    name = f"{int(time.time())}_{seed}_{uuid.uuid4().hex[:6]}.png"
-    result_img.save(str(OUTPUT_DIR / name))
+def generate(prompt: str, image_bytes: bytes, mask_bytes: bytes, model_id: str,
+             negative_prompt: str = "deformed, blurry, bad anatomy, low quality",
+             strength: float = 0.8, steps: int = 30, seed: int | None = None) -> dict:
 
-    del result_img, init_image_full_res, mask_image_full_res, init_image, mask_image
+    global _abort_flag
+    _abort_flag = False
+    if seed is None:
+        seed = int(time.time()) % (2**31)
 
-    return {"file": name, "seed": seed, "prompt": prompt}
+    is_flux = "flux" in model_id.lower() or "mflux" in model_id.lower()
+
+    if is_flux:
+        return _generate_flux(prompt, image_bytes, mask_bytes, model_id, strength, steps, seed)
+    else:
+        return _generate_diffusers(prompt, image_bytes, mask_bytes, model_id, negative_prompt, strength, steps, seed)

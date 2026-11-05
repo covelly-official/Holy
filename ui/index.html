@@ -19,7 +19,7 @@
     <div class="app-container">
         <header>
             <h1>Holy<span class="accent-dot">.</span></h1>
-            <p>AI Shop <span class="divider-dot">&middot;</span> Inpainting</p>
+            <p>AI Shop <span class="divider-dot">&middot;</span> Inpainting &amp; Text-to-Image</p>
         </header>
 
         <form id="generate-form" class="main-layout">
@@ -28,15 +28,15 @@
 
 
                 <div class="input-group">
-                    <label for="image-upload"><span class="step-num">1</span> Upload Photo</label>
+                    <label for="image-upload"><span class="step-num">1</span> Upload Photo <span class="optional-tag">optional for FLUX</span></label>
                     <div class="file-drop">
-                        <input type="file" id="image-upload" accept="image/*" required>
+                        <input type="file" id="image-upload" accept="image/*">
                     </div>
                 </div>
 
                 <div class="input-group">
-                    <label><span class="step-num">2</span> Draw Mask</label>
-                    <p class="helper-text">Paint over the clothes you want to change.</p>
+                    <label><span class="step-num">2</span> Draw Mask <span class="optional-tag">for inpainting</span></label>
+                    <p class="helper-text">Paint over the clothes you want to change (not needed for pure Text-to-Image).</p>
 
                     <div class="brush-controls">
                         <div class="brush-slider-row">
@@ -65,9 +65,9 @@
                 </div>
 
                 <div class="input-group">
-                    <label for="prompt"><span class="step-num">3</span> Describe New Outfit</label>
+                    <label for="prompt"><span class="step-num">3</span> Prompt / Describe Look</label>
                     <textarea id="prompt" rows="3"
-                        placeholder="e.g. A stylish red leather jacket, high fashion, detailed stitching..."
+                        placeholder="e.g. A stylish red leather jacket, high fashion, or full description of person/scene..."
                         required></textarea>
                 </div>
 
@@ -89,7 +89,7 @@
                             <circle cx="8.5" cy="8.5" r="1.5"></circle>
                             <polyline points="21 15 16 10 5 21"></polyline>
                         </svg>
-                        <p>Upload an image to start masking</p>
+                        <p>Upload a photo to inpaint, or prompt directly for Text-to-Image</p>
                     </div>
 
                     <!-- Canvases are stacked and positioned absolutely via CSS -->
@@ -170,6 +170,20 @@
             <!-- ===================== ADVANCED SETTINGS (RIGHT) ===================== -->
             <section class="advanced-panel glass-panel" aria-label="Advanced settings">
                 <div style="margin-bottom: 1.5rem;">
+                    <h3 style="color: var(--gray-300); font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">
+                        Model Settings</h3>
+                </div>
+
+                <div class="input-group">
+                    <label for="model-id">AI Model</label>
+                    <select id="model-id"
+                        style="width: 100%; padding: 0.7rem; background: var(--panel-light); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--white); font-family: inherit;">
+                        <option value="Uminosachi/realisticVisionV51_v51VAE-inpainting" selected>Realistic Vision V5.1 (PyTorch)</option>
+                        <option value="ar9av/FLUX.2-klein-4B-mflux-4bit">FLUX.2 Klein 4B (MLX Native)</option>
+                    </select>
+                </div>
+
+                <div style="margin-top: 2.5rem; margin-bottom: 1.5rem;">
                     <h3
                         style="color: var(--gray-300); font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">
                         Advanced Settings</h3>

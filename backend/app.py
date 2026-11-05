@@ -24,36 +24,59 @@ app.mount("/outputs", StaticFiles(directory=engine.OUTPUT_DIR), name="outputs")
 @app.post("/generate")
 async def generate_endpoint(
     prompt: str = Form(...),
-    image: UploadFile = File(...),
-    mask: UploadFile = File(...),
+    image: UploadFile | None = File(None),
+    mask: UploadFile | None = File(None),
+    model_id: str = Form("Uminosachi/realisticVisionV51_v51VAE-inpainting"),
     negative_prompt: str = Form(None),
     steps: int = Form(30),
     strength: float = Form(0.8),
-    seed: int = Form(None)
+    seed: int = Form(None),
+    aspect_ratio: str = Form("original"),
+    width: int | None = Form(None),
+    height: int | None = Form(None),
 ):
-    image_bytes = await image.read()
-    mask_bytes = await mask.read()
-    
+    image_bytes = None
+    if image is not None:
+        try:
+            content = await image.read()
+            if content and len(content) > 0:
+                image_bytes = content
+        except Exception:
+            image_bytes = None
+
+    mask_bytes = None
+    if mask is not None:
+        try:
+            content = await mask.read()
+            if content and len(content) > 0:
+                mask_bytes = content
+        except Exception:
+            mask_bytes = None
+
     seed_val = seed if seed else None
-    
+
     kwargs = {
         "prompt": prompt,
         "image_bytes": image_bytes,
         "mask_bytes": mask_bytes,
+        "model_id": model_id,
         "strength": strength,
         "steps": steps,
-        "seed": seed_val
+        "seed": seed_val,
+        "aspect_ratio": aspect_ratio,
+        "width": width,
+        "height": height,
     }
-    
+
     if negative_prompt:
         kwargs["negative_prompt"] = negative_prompt
-        
+
     from starlette.concurrency import run_in_threadpool
     result = await run_in_threadpool(engine.generate, **kwargs)
-    
+
     if result.get("status") == "aborted":
         return result
-        
+
     result["url"] = f"/outputs/{result['file']}"
     return result
 
