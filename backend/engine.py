@@ -321,6 +321,17 @@ def load_model(model_id: str):
 
         print(f"Model loaded successfully on {device}! (dtype: {pipeline_dtype})")
 
+        # Load negative embeddings (e.g. bad-hands-5, badhandv4) if present
+        emb_dir = Path(__file__).parent.parent / "models" / "embeddings"
+        if emb_dir.exists():
+            for emb_file in sorted(emb_dir.glob("*.pt")):
+                token_name = emb_file.stem
+                try:
+                    _model.load_textual_inversion(str(emb_file), token=token_name)
+                    print(f"Loaded textual inversion embedding: {token_name}")
+                except Exception as e:
+                    print(f"Could not load embedding {emb_file.name}: {e}")
+
     _ensure_watcher_started()
     return _model
 
@@ -879,14 +890,28 @@ def _generate_diffusers(prompt, image_bytes, mask_bytes, model_id, negative_prom
 
 def generate(prompt: str, image_bytes: bytes | None = None, mask_bytes: bytes | None = None,
              model_id: str = "Uminosachi/realisticVisionV51_v51VAE-inpainting",
-             negative_prompt: str = "deformed, blurry, bad anatomy, low quality",
+             negative_prompt: str = "bad-hands-5, badhandv4, (extra fingers:1.2), (missing fingers:1.2), (fused fingers:1.2), deformed, blurry, bad anatomy, low quality",
              strength: float = 0.8, steps: int = 30, seed: int | None = None,
-             aspect_ratio: str = "original", width: int | None = None, height: int | None = None) -> dict:
+             aspect_ratio: str = "original", width: int | None = None, height: int | None = None,
+             allow_nsfw: bool = True) -> dict:
 
     global _abort_flag
     _abort_flag = False
     if seed is None:
         seed = int(time.time()) % (2**31)
+
+    print(f"[Holy Engine] Generation: allow_nsfw={allow_nsfw}, prompt='{prompt}'")
+
+    # When NSFW is disabled (Safe Mode), inject strong anti-nudity and safety tokens into negative prompt
+    if not allow_nsfw:
+        safe_negatives = "nsfw, nude, naked, nudity, nipples, breasts, sexual, explicit, pornography, topless, erotic, genitals, adult content"
+        if negative_prompt:
+            negative_prompt = f"{negative_prompt}, {safe_negatives}"
+        else:
+            negative_prompt = safe_negatives
+        print(f"[Holy Engine] Safe Mode ACTIVE: Injected safety negatives.")
+    else:
+        print(f"[Holy Engine] Uncensored Mode ACTIVE: Safety filters bypassed.")
 
     is_flux = "flux" in model_id.lower() or "mflux" in model_id.lower()
 

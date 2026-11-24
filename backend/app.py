@@ -1,8 +1,17 @@
 from contextlib import asynccontextmanager
+import logging
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import engine
+
+# Filter out high-frequency polling from Uvicorn terminal access log
+class QuietPollingFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return "/progress" not in msg and "/health" not in msg
+
+logging.getLogger("uvicorn.access").addFilter(QuietPollingFilter())
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,6 +43,7 @@ async def generate_endpoint(
     aspect_ratio: str = Form("original"),
     width: int | None = Form(None),
     height: int | None = Form(None),
+    allow_nsfw: bool = Form(True),
 ):
     image_bytes = None
     if image is not None:
@@ -66,6 +76,7 @@ async def generate_endpoint(
         "aspect_ratio": aspect_ratio,
         "width": width,
         "height": height,
+        "allow_nsfw": allow_nsfw,
     }
 
     if negative_prompt:
@@ -105,4 +116,10 @@ app.mount("/", StaticFiles(directory=ui_dir, html=True), name="ui")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="127.0.0.1", port=9000, reload=True)
+    uvicorn.run(
+        "app:app",
+        host="127.0.0.1",
+        port=9000,
+        reload=True,
+        reload_excludes=["outputs/*", "outputs", "**/outputs/**"]
+    )

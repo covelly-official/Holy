@@ -478,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
             placeholder.style.display = 'flex';
             canvasContainer.style.height = 'auto'; // Reset height
             document.getElementById('prompt').value = '';
-            document.getElementById('negative-prompt').value = 'deformed, blurry, bad anatomy, low quality';
+            document.getElementById('negative-prompt').value = 'bad-hands-5, badhandv4, (extra fingers:1.2), (missing fingers:1.2), (fused fingers:1.2), deformed, blurry, bad anatomy, low quality';
         });
     }
 
@@ -523,6 +523,41 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 await fetch(`${API_BASE}/abort`, { method: 'POST' });
             } catch (e) { }
+        });
+    }
+
+    // NSFW / Safety Toggle state & persistence
+    const nsfwToggle = document.getElementById('nsfw-toggle');
+    const nsfwBadge = document.getElementById('nsfw-badge');
+    const nsfwDesc = document.getElementById('nsfw-desc');
+
+    function updateNsfwState(enabled) {
+        if (!nsfwBadge || !nsfwDesc) return;
+        if (enabled) {
+            nsfwBadge.textContent = 'Uncensored';
+            nsfwBadge.style.color = '#ef4444';
+            nsfwBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+            nsfwBadge.style.background = 'rgba(239, 68, 68, 0.15)';
+            nsfwDesc.textContent = 'Disable safety filters for unrestricted generation.';
+        } else {
+            nsfwBadge.textContent = 'Safe Mode';
+            nsfwBadge.style.color = '#22c55e';
+            nsfwBadge.style.borderColor = 'rgba(34, 197, 94, 0.4)';
+            nsfwBadge.style.background = 'rgba(34, 197, 94, 0.15)';
+            nsfwDesc.textContent = 'Safety filters active — explicit content filtered.';
+        }
+    }
+
+    if (nsfwToggle) {
+        const savedNsfw = localStorage.getItem('holy_allow_nsfw');
+        if (savedNsfw !== null) {
+            nsfwToggle.checked = savedNsfw === 'true';
+        }
+        updateNsfwState(nsfwToggle.checked);
+
+        nsfwToggle.addEventListener('change', () => {
+            localStorage.setItem('holy_allow_nsfw', nsfwToggle.checked ? 'true' : 'false');
+            updateNsfwState(nsfwToggle.checked);
         });
     }
 
@@ -632,6 +667,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const aspectVal = aspectRatioSelect ? aspectRatioSelect.value : 'original';
             formData.append('aspect_ratio', aspectVal);
+            const allowNsfw = nsfwToggle ? nsfwToggle.checked : true;
+            formData.append('allow_nsfw', allowNsfw ? 'true' : 'false');
 
             let imageBlob = null;
             if (hasImage) {

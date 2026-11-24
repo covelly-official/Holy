@@ -71,7 +71,19 @@
                         required></textarea>
                 </div>
 
-
+                <div class="input-group toggle-group" style="margin-top: 1.25rem; margin-bottom: 1.25rem;">
+                    <div class="toggle-label-wrap">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <label for="nsfw-toggle" style="cursor: pointer; margin-bottom: 0;">Allow NSFW</label>
+                            <span class="badge" id="nsfw-badge" style="font-size: 0.7rem; padding: 2px 7px; border-radius: 4px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); font-weight: 600; white-space: nowrap; display: inline-block;">Uncensored</span>
+                        </div>
+                        <p class="helper-text" id="nsfw-desc" style="margin-top: 0.25rem;">Disable safety filters for unrestricted generation.</p>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="nsfw-toggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
 
                 <button type="submit" id="generate-btn" class="glow-btn">
                     <span>Generate</span>
@@ -192,7 +204,7 @@
                 <div class="input-group">
                     <label for="negative-prompt">Negative Prompt <span class="optional-tag">optional</span></label>
                     <textarea id="negative-prompt" rows="2"
-                        placeholder="deformed, blurry, bad anatomy, low quality">deformed, blurry, bad anatomy, low quality</textarea>
+                        placeholder="bad-hands-5, badhandv4, (extra fingers:1.2), deformed, bad anatomy">bad-hands-5, badhandv4, (extra fingers:1.2), (missing fingers:1.2), (fused fingers:1.2), deformed, blurry, bad anatomy, low quality</textarea>
                     <p class="helper-text">What to explicitly avoid generating.</p>
                 </div>
 
