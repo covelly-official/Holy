@@ -1,21 +1,10 @@
 # Holy.
 
-> **Local-first AI Studio & Virtual Try-On for Apple Silicon**  
-> 100% Offline • Zero Subscriptions • Zero Cloud Telemetry
+> **an local AI image editor**  
 
-Holy is a lightweight, hardware-accelerated local creative studio built from the ground up for Apple Silicon (M1/M2/M3/M4). It enables seamless **Inpainting, Generative Fill, Virtual Try-On, and Text-to-Image synthesis** running directly on your Mac's unified memory.
-
+This is an offlienimage editor made for apple silicon any M serise mac,
 ---
 
-## ✨ Features
-
-- **🍏 Apple Silicon Native:** Tuned specifically for Apple Metal Performance Shaders (`mps`) and Apple MLX (`mflux`).
-- **🖌️ Interactive Inpainting Canvas:** Built-in dual-layer painting canvas with adjustable brush sizes, eraser, and an interactive Before/After comparison slider.
-- **🛡️ Intelligent Safety Modes:** Includes an on-canvas **Allow NSFW** switch. Safe Mode actively steers diffusion latents away from explicit concepts; Uncensored Mode provides full artistic freedom without false-positive black screens.
-- **⚡ Unified Memory Protection:** Dynamic watchdog prevents macOS SSD swap thrashing on 16GB MacBooks, with an auto-unload timer that frees VRAM when idle.
-- **🔒 Complete Privacy:** Your uploaded photos and generated edits never leave your machine. The output directory is completely git-ignored.
-
----
 
 ## 💻 System Requirements
 
@@ -25,7 +14,7 @@ Holy is a lightweight, hardware-accelerated local creative studio built from the
 
 ---
 
-## 🚀 Quick Start (3 Steps)
+##  How to run it
 
 ### 1. Clone the Repository
 ```bash
